@@ -24,7 +24,8 @@ class EventsCore(Core):
             return
 
         # constructs the message and replies with a mention
-        ok = await message.reply(urls_to_string(ddinsta_urls, SocialMedia.INSTAGRAM))
+        ok = await message.reply(urls_to_string(ddinsta_urls, SocialMedia.INSTAGRAM, message.author.mention))
+
 
         # Remove embeds from user message if reply is successful
         if ok:
