@@ -49,7 +49,7 @@ def convert_to_vx_twitter_url(embeds: list[Embed]):
     return fxtwitter_urls
     
 
-def urls_to_string(links: list[str], socialMedia: SocialMedia, author_mention: str):
+def urls_to_string(links: list[str], socialMedia: SocialMedia):
     """
     Parameters
     ----------
@@ -65,7 +65,7 @@ def urls_to_string(links: list[str], socialMedia: SocialMedia, author_mention: s
     """
     return "\n".join(
         [
-            f"originally posted by {author_mention}",
+            f"{socialMedia.value} link replaced for better embeds",
             *links,
         ]
     )
