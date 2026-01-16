@@ -49,7 +49,7 @@ def convert_to_vx_twitter_url(embeds: list[Embed]):
     return fxtwitter_urls
     
 
-def urls_to_string(links: list[str], socialMedia: SocialMedia):
+def urls_to_string(links: list[str], socialMedia: SocialMedia, author_mention: str):
     """
     Parameters
     ----------
@@ -57,14 +57,15 @@ def urls_to_string(links: list[str], socialMedia: SocialMedia):
         A list of urls
     socialMedia: SocialMedia
         The social media to replace.
-
+    author_mention: str
+        The mention string for the original poster
     Returns
     -------
         Formatted output
     """
     return "\n".join(
         [
-            f"your {socialMedia.value} link has been replaced for embeds",
+            f"originally posted by {author_mention}",
             *links,
         ]
     )
