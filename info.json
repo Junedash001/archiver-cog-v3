@@ -1,0 +1,7 @@
+{
+    "author" : ["June"],
+    "short" : "Test",
+    "description" : "Test",
+    "install_msg" : "Test",
+    "min_bot_version": "3.5.0"
+}
