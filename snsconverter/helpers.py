@@ -33,21 +33,18 @@ def convert_to_vx_twitter_url(embeds: list[Embed]):
     Parameters
     ----------
     embeds: list of Discord embeds
-
     Returns
     -------
-        filtered list of twitter URLs that have been converted to vxtwitter
+        filtered list of twitter URLs that have been converted to fxtwitter
     """
-
-    # pulls only video embeds from list of embeds
-    urls = [entry.url for entry in embeds if entry.video]
-
-    vxtwitter_urls = [
-        result.replace("https://x.com", "https://fxtwitter.com")
-        for result in urls
-        if "https://x.com" in result
-    ]
-
+    # pulls ALL embeds, not just video embeds
+    urls = [entry.url for entry in embeds]
+    vxtwitter_urls = []
+    for result in urls:
+        if "https://twitter.com" in result:
+            vxtwitter_urls.append(result.replace("https://twitter.com", "https://fxtwitter.com"))
+        elif "https://x.com" in result:
+            vxtwitter_urls.append(result.replace("https://x.com", "https://fxtwitter.com"))
     return vxtwitter_urls
 
 
