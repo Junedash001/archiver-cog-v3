@@ -39,12 +39,13 @@ def convert_to_vx_twitter_url(embeds: list[Embed]):
     """
     # pulls ALL embeds, not just video embeds
     urls = [entry.url for entry in embeds]
-    vxtwitter_urls = []
+    vxtwitter_urls = [
     for result in urls:
         if "https://twitter.com" in result:
             vxtwitter_urls.append(result.replace("https://twitter.com", "https://fxtwitter.com"))
         elif "https://x.com" in result:
             vxtwitter_urls.append(result.replace("https://x.com", "https://fxtwitter.com"))
+    ]
     return vxtwitter_urls
 
 
