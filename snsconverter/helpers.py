@@ -39,7 +39,7 @@ def convert_to_vx_twitter_url(embeds: list[Embed]):
     -------
         filtered list of twitter URLs that have been converted to fxtwitter
     """
-    urls = [entry.url for entry in embeds]
+    urls = [entry.url for entry in embeds if entry.video]
     fxtwitter_urls = []
     for result in urls:
         if re.match(TWITTER_REGEX_PATTERN, result):
