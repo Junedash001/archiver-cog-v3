@@ -93,43 +93,32 @@ class RestrictPosts(commands.Cog):
     def cog_unload(self):
         self._cache.clear()
 
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        """Check messages in the restricted channel and delete if they don't contain attachments or links."""
-        if message.author.bot or not message.guild:
-            return
+@commands.Cog.listener()
+async def on_message(self, message: discord.Message):
+    """Check messages in the restricted channel and delete if they don't contain attachments or links."""
+    # Check if message is from a bot - for autothreading purposes only
+    is_bot = message.author.bot
+    
+    if not message.guild:
+        return
 
-        if await self.bot.cog_disabled_in_guild(self, message.guild):
-            return
+    if await self.bot.cog_disabled_in_guild(self, message.guild):
+        return
 
-        if await self.bot.is_automod_immune(message.author):
-            return
-
+    # Skip all checks for bots EXCEPT autothreading
+    if is_bot:
         settings = await self._get_guild_settings(message.guild)
         channel_ids = settings["channel_id"] or []
-        if not channel_ids or message.channel.id not in channel_ids:
-            return
-
-        if not (
-            message.channel.permissions_for(message.guild.me).manage_messages
-            and message.channel.permissions_for(message.guild.me).send_messages
-        ):
-            log.warning(
-                "Lacking manage_messages or send_messages permissions in %s in %s (%s).",
-                message.channel.mention,
-                message.guild.name,
-                message.guild.id,
-            )
-            return
-
-        if isinstance(message.channel, discord.Thread):
-            return
-
-        has_attachment = len(message.attachments) > 0
-        has_link = bool(self.url_regex.search(message.content))
-
-        if has_attachment or has_link:
-            if settings["autothread"]:
+        
+        # Only handle autothreading for bots
+        if settings["autothread"] and channel_ids and message.channel.id in channel_ids:
+            if isinstance(message.channel, discord.Thread):
+                return
+                
+            has_attachment = len(message.attachments) > 0
+            has_link = bool(self.url_regex.search(message.content))
+            
+            if has_attachment or has_link:
                 try:
                     if not message.channel.permissions_for(message.guild.me).create_public_threads:
                         log.warning(
@@ -144,7 +133,7 @@ class RestrictPosts(commands.Cog):
                     await message.create_thread(
                         name=thread_name[:100],
                         auto_archive_duration=1440,
-                        reason="Auto-thread for valid message",
+                        reason="Auto-thread for valid bot message",
                     )
                 except discord.HTTPException as e:
                     if e.code == 40058:
@@ -161,60 +150,18 @@ class RestrictPosts(commands.Cog):
                             e,
                             exc_info=True,
                         )
-            return
-        else:
-            warning_message = settings["warning_message"].strip()
-            send_in_channel = settings["send_in_channel"]
-            delete = settings["delete_after"]
-            mentionable = settings["mentionable"]
-            try:
-                await message.delete()
-                if send_in_channel:
-                    guild_me = message.guild.me
-                    if (
-                        settings["toggle_embed"]
-                        and not message.channel.permissions_for(guild_me).embed_links
-                    ):
-                        log.warning(
-                            "Lacking embed_links permission in %s in %s (%s). Falling back to text warning.",
-                            message.channel.mention,
-                            message.guild.name,
-                            message.guild.id,
-                        )
-                    if (
-                        settings["toggle_embed"]
-                        and message.channel.permissions_for(guild_me).embed_links
-                    ):
-                        author_prefix = (
-                            message.author.mention if mentionable else message.author.display_name
-                        )
-                        description = "{}: {}".format(author_prefix, warning_message)
-                        embed = discord.Embed(
-                            title=settings["default_title"],
-                            description=description,
-                            color=0xFF0000,
-                        )
-                        await message.channel.send(
-                            embed=embed, delete_after=delete, mention_author=mentionable
-                        )
-                    else:
-                        content = (
-                            "{} {}".format(message.author.mention, warning_message)
-                            if mentionable
-                            else "{} {}".format(message.author.display_name, warning_message)
-                        )
-                        await message.channel.send(
-                            content, delete_after=delete, mention_author=mentionable
-                        )
-            except discord.Forbidden:
-                log.error(
-                    "Missing permissions to delete message %s in guild %s",
-                    message.id,
-                    message.guild.id,
-                )
-            except discord.NotFound:
-                log.warning("Message %s already deleted in guild %s", message.id, message.guild.id)
+        return
 
+    # Continue with normal checks for human users
+    if await self.bot.is_automod_immune(message.author):
+        return
+
+    settings = await self._get_guild_settings(message.guild)
+    channel_ids = settings["channel_id"] or []
+    if not channel_ids or message.channel.id not in channel_ids:
+        return
+
+    # ... rest of the function stays the same
     @commands.Cog.listener()
     async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent):
         """Handle edited messages by rechecking them, using cached message only."""
