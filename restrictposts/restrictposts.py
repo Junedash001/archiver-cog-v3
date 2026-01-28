@@ -94,30 +94,9 @@ class RestrictPosts(commands.Cog):
         self._cache.clear()
 
     @commands.Cog.listener()
-     async def on_message(self, message: discord.Message):
+    async def on_message(self, message: discord.Message):
         """Check messages in the restricted channel and delete if they don't contain attachments or links."""
         if not message.guild:
-            return
-        
-        # Handle bots separately - only for autothreading
-        if message.author.bot:
-            settings = await self._get_guild_settings(message.guild)
-            if settings["autothread"]:
-                channel_ids = settings["channel_id"] or []
-                if channel_ids and message.channel.id in channel_ids and not isinstance(message.channel, discord.Thread):
-                    has_attachment = len(message.attachments) > 0
-                    has_link = bool(self.url_regex.search(message.content))
-                    if has_attachment or has_link:
-                        try:
-                            if message.channel.permissions_for(message.guild.me).create_public_threads:
-                                await asyncio.sleep(1)
-                                await message.create_thread(
-                                    name=f"Discussion for {message.author.display_name}'s post"[:100],
-                                    auto_archive_duration=1440,
-                                    reason="Auto-thread for bot message",
-                                )
-                        except discord.HTTPException:
-                            pass
             return
 
         if await self.bot.cog_disabled_in_guild(self, message.guild):
