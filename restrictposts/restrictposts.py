@@ -102,9 +102,6 @@ class RestrictPosts(commands.Cog):
         if await self.bot.cog_disabled_in_guild(self, message.guild):
             return
 
-        if await self.bot.is_automod_immune(message.author):
-            return
-
         settings = await self._get_guild_settings(message.guild)
         channel_ids = settings["channel_id"] or []
         if not channel_ids or message.channel.id not in channel_ids:
