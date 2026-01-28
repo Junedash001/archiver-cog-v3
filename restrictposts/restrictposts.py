@@ -93,13 +93,63 @@ class RestrictPosts(commands.Cog):
     def cog_unload(self):
         self._cache.clear()
 
-    @commands.Cog.listener()
+@commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         """Check messages in the restricted channel and delete if they don't contain attachments or links."""
-        if message.author.bot or not message.guild:
+        # Check if message is from a bot - for autothreading purposes only
+        is_bot = message.author.bot
+        
+        if not message.guild:
             return
 
         if await self.bot.cog_disabled_in_guild(self, message.guild):
+            return
+
+        # Skip all checks for bots EXCEPT autothreading
+        if is_bot:
+            settings = await self._get_guild_settings(message.guild)
+            channel_ids = settings["channel_id"] or []
+            
+            # Only handle autothreading for bots
+            if settings["autothread"] and channel_ids and message.channel.id in channel_ids:
+                if isinstance(message.channel, discord.Thread):
+                    return
+                    
+                has_attachment = len(message.attachments) > 0
+                has_link = bool(self.url_regex.search(message.content))
+                
+                if has_attachment or has_link:
+                    try:
+                        if not message.channel.permissions_for(message.guild.me).create_public_threads:
+                            log.warning(
+                                "Lacking create_public_threads permission in %s in %s (%s).",
+                                message.channel.mention,
+                                message.guild.name,
+                                message.guild.id,
+                            )
+                            return
+                        await asyncio.sleep(1)
+                        thread_name = "Discussion for {}'s post".format(message.author.display_name)
+                        await message.create_thread(
+                            name=thread_name[:100],
+                            auto_archive_duration=1440,
+                            reason="Auto-thread for valid bot message",
+                        )
+                    except discord.HTTPException as e:
+                        if e.code == 40058:
+                            log.error(
+                                "Cannot create thread for message %s in guild %s: Max threads reached (1000)",
+                                message.id,
+                                message.guild.id,
+                            )
+                        else:
+                            log.error(
+                                "Failed to create thread for message %s in guild %s: %s",
+                                message.id,
+                                message.guild.id,
+                                e,
+                                exc_info=True,
+                            )
             return
 
         if await self.bot.is_automod_immune(message.author):
