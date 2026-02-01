@@ -1567,7 +1567,14 @@ class RSS(commands.Cog):
                 summary = feedparser_plus_obj.get("summary_detail_plaintext", "")
                 full_text = content + summary
                 
+                # Debug: log what we're checking
+                log.debug(f"Checking NPR post: {feedparser_plus_obj.get('title', 'No title')[:50]}")
+                log.debug(f"Content length: {len(content)}, Summary length: {len(summary)}")
+                log.debug(f"Full text preview: {full_text[:200]}")
+                
                 has_image_credit = "(Image credit:" in full_text
+                log.debug(f"Has image credit: {has_image_credit}")
+                
                 if not has_image_credit:
                     log.debug(
                         f"{name} feed post in {channel.name} ({channel.id}) was skipped (likely a podcast - no image credit)."
