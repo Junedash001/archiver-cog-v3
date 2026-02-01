@@ -1561,9 +1561,15 @@ class RSS(commands.Cog):
                     )
                     continue
 
-            # Filter: only show posts with "Image credit"
-            all_text = str(feedparser_plus_obj)
-            if "Image credit" not in all_text:
+            # Filter: only show posts with "(Image credit:" in content
+            content_list = feedparser_plus_obj.get("content", [])
+            has_image_credit = False
+            if content_list:
+                for content_item in content_list:
+                    if "(Image credit:" in content_item.get("value", ""):
+                        has_image_credit = True
+                        break
+            if not has_image_credit:
                 continue
             
             # starting to fill out the template for feeds that passed tag verification (if present)
