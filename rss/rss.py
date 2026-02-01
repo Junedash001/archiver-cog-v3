@@ -1561,6 +1561,19 @@ class RSS(commands.Cog):
                     )
                     continue
 
+            # NPR podcast filter - skip entries without image credits
+            if "npr.org" in url:
+                content = feedparser_plus_obj.get("content_plaintext", "")
+                summary = feedparser_plus_obj.get("summary_detail_plaintext", "")
+                full_text = content + summary
+                
+                has_image_credit = "(Image credit:" in full_text
+                if not has_image_credit:
+                    log.debug(
+                        f"{name} feed post in {channel.name} ({channel.id}) was skipped (likely a podcast - no image credit)."
+                    )
+                    continue
+            
             # starting to fill out the template for feeds that passed tag verification (if present)
             to_fill = QuietTemplate(template)
             message = to_fill.quiet_safe_substitute(name=bold(name), **feedparser_plus_obj)
