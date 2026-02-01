@@ -1561,8 +1561,9 @@ class RSS(commands.Cog):
                     )
                     continue
 
-            # Filter: only show if content_image01 tag exists at all
-            if "content_image01" not in feedparser_plus_obj:
+            # Filter: check if content_image01 contains "brightspot" (real image vs tracking pixel)
+            content_image01 = feedparser_plus_obj.get("content_image01", "")
+            if "brightspot" not in content_image01:
                 continue
 
             # starting to fill out the template for feeds that passed tag verification (if present)
