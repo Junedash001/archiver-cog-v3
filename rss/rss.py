@@ -1561,6 +1561,11 @@ class RSS(commands.Cog):
                     )
                     continue
 
+            # Filter: only show if content_image01 has a real image (not tracking pixel)
+            content_image = feedparser_plus_obj.get("content_image01", "")
+            if "brightspotcdn" not in content_image:
+                continue
+
             # starting to fill out the template for feeds that passed tag verification (if present)
             to_fill = QuietTemplate(template)
             message = to_fill.quiet_safe_substitute(name=bold(name), **feedparser_plus_obj)
