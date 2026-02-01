@@ -1561,9 +1561,14 @@ class RSS(commands.Cog):
                     )
                     continue
 
-            # Filter: skip if no brightspotcdn image (podcasts only have tracking pixel)
-            summary = feedparser_plus_obj.get("summary", "")
-            if "brightspotcdn" not in summary:
+           # Filter: skip if no brightspotcdn image (podcasts only have tracking pixel)
+            content = feedparser_plus_obj.get("content", [])
+            has_brightspot = False
+            if content:
+                content_text = content[0].get("value", "")
+                if "brightspotcdn" in content_text:
+                    has_brightspot = True
+            if not has_brightspot:
                 continue
             
             # starting to fill out the template for feeds that passed tag verification (if present)
