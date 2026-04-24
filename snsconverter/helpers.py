@@ -12,23 +12,17 @@ def convert_to_ddinsta_url(embeds: list[Embed]):
     Parameters
     ----------
     embeds: list of Discord embeds
-
     Returns
     -------
-        filtered list of Instagram URLs that have been converted to ddinstagram
+        filtered list of Instagram URLs that have been converted to vxinstagram
     """
-
-    # pulls only video embeds from list of embeds
     urls = [entry.url for entry in embeds]
-
-    ddinsta_urls = [
-        re.sub(INSTA_REGEX_PATTERN, r"https://vx\1", result)
+    vxinsta_urls = [
+        re.sub(r"https://(?:www\.)?instagram\.com", "https://vxinstagram.com", result)
         for result in urls
         if re.match(INSTA_REGEX_PATTERN, result)
     ]
-
-    return ddinsta_urls
-
+    return vxinsta_urls
 
 def convert_to_vx_twitter_url(embeds: list[Embed]):
     """
