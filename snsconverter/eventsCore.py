@@ -7,9 +7,6 @@ from .helpers import convert_to_ddinsta_url, convert_to_vx_twitter_url, urls_to_
 
 class EventsCore(Core):
     async def _on_message_insta_replacer(self, message: Message):
-        if not valid(message):
-            return
-
         if not await self.config.guild(message.guild).get_attr(KEY_ENABLED)():
             self.logger.debug(
                 "SNSConverter disabled for guild %s (%s), skipping",
@@ -17,24 +14,38 @@ class EventsCore(Core):
                 message.guild.id,
             )
             return
-
-        ddinsta_urls = convert_to_ddinsta_url(message.embeds)
-
-        if not ddinsta_urls:
+        
+        # Skip bot messages
+        if message.author.bot:
             return
-
-        # constructs the message and replies with a mention
-        ok = await message.reply(urls_to_string(ddinsta_urls, SocialMedia.INSTAGRAM))
-
-
-        # Remove embeds from user message if reply is successful
+        
+        # Check message content directly for Instagram URLs
+        if not re.search(INSTA_REGEX_PATTERN, message.content):
+            return
+        
+        # Extract and convert Instagram URLs from message content
+        insta_urls = re.findall(r"https?://(?:www\.)?instagram\.com/\S+", message.content)
+        
+        if not insta_urls:
+            return
+        
+        # Convert to vxinstagram
+        vxinsta_urls = [
+            re.sub(r"https://(?:www\.)?instagram\.com", "https://vxinstagram.com", url)
+            for url in insta_urls
+        ]
+        
+        # Reply with converted URLs
+        ok = await message.reply(urls_to_string(vxinsta_urls, SocialMedia.INSTAGRAM))
+        
+        # Suppress embeds if successful
         if ok:
             await message.edit(suppress=True)
 
     async def _on_edit_insta_replacer(self, message_before: Message, message_after: Message):
-        if not valid(message_after):
+        if message_after.author.bot:
             return
-
+        
         if not await self.config.guild(message_after.guild).get_attr(KEY_ENABLED)():
             self.logger.debug(
                 "SNSConverter disabled for guild %s (%s), skipping",
@@ -42,27 +53,29 @@ class EventsCore(Core):
                 message_after.guild.id,
             )
             return
-
-        new_embeds = [
-            embed for embed in message_after.embeds if embed not in message_before.embeds
+        
+        # Check if new Instagram URLs were added
+        old_urls = set(re.findall(r"https?://(?:www\.)?instagram\.com/\S+", message_before.content))
+        new_urls = set(re.findall(r"https?://(?:www\.)?instagram\.com/\S+", message_after.content))
+        
+        added_urls = new_urls - old_urls
+        
+        if not added_urls:
+            return
+        
+        # Convert to vxinstagram
+        vxinsta_urls = [
+            re.sub(r"https://(?:www\.)?instagram\.com", "https://vxinstagram.com", url)
+            for url in added_urls
         ]
-
-        # skips if the message has no new embeds
-        if not new_embeds:
-            return
-
-        ddinsta_urls = convert_to_ddinsta_url(new_embeds)
-
-        if not ddinsta_urls:
-            return
-
-        # constructs the message and replies with a mention
-        ok = await message_after.reply(urls_to_string(ddinsta_urls, SocialMedia.INSTAGRAM))
-
-        # Remove embeds from user message if reply is successful
+        
+        # Reply with converted URLs
+        ok = await message_after.reply(urls_to_string(vxinsta_urls, SocialMedia.INSTAGRAM))
+        
+        # Suppress embeds if successful
         if ok:
             await message_after.edit(suppress=True)
-
+            
     async def _on_message_twit_replacer(self, message: Message):
         if not valid(message):
             return
