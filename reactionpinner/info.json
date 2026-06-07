@@ -1,0 +1,9 @@
+{
+    "author": ["YourNameOrShadcodez"],
+    "name": "ReactionPinner",
+    "description": "Automatically pins messages that reach a configurable number of reactions.",
+    "short": "Auto-pin popular messages via reactions.",
+    "requirements": [],
+    "tags": ["utility", "moderation", "reactions"],
+    "min_bot_version": "3.5.0"
+}
