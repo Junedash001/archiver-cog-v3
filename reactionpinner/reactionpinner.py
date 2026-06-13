@@ -1,5 +1,5 @@
 import discord
-from redbot.core import commands, Config, app_commands
+from redbot.core import commands, Config
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
 import logging
@@ -16,8 +16,8 @@ class ReactionPinner(commands.Cog):
         self.config = Config.get_conf(self, identifier=9876543210, force_registration=True)
         self.config.register_guild(
             enabled=True,
-            channels={},  
-            pin_bot_messages=True   # ← Now enabled by default
+            channels={},
+            pin_bot_messages=True
         )
 
     async def _get_channel_config(self, channel) -> Dict:
@@ -29,7 +29,7 @@ class ReactionPinner(commands.Cog):
         return {
             "enabled": ch_config.get("enabled", False),
             "threshold": ch_config.get("threshold", 5),
-            "emojis": ch_conf.get("emojis", [])
+            "emojis": ch_config.get("emojis", [])
         }
 
     def _emoji_matches(self, reaction_emoji, config_emojis: List[str]) -> bool:
@@ -53,7 +53,7 @@ class ReactionPinner(commands.Cog):
 
     @pinreact.command(name="botmessages")
     async def toggle_bot_messages(self, ctx: commands.Context):
-        """Toggle whether bot messages can be auto-pinned (currently enabled by default)."""
+        """Toggle whether bot messages can be auto-pinned."""
         current = await self.config.guild(ctx.guild).pin_bot_messages()
         await self.config.guild(ctx.guild).pin_bot_messages.set(not current)
         status = "enabled" if not current else "disabled"
@@ -138,11 +138,11 @@ class ReactionPinner(commands.Cog):
         guild_conf = await self.config.guild(ctx.guild).all()
         channels = guild_conf.get("channels", {})
 
+        bot_pin = await self.config.guild(ctx.guild).pin_bot_messages()
+
         if not channels and not channel:
-            bot_pin = await self.config.guild(ctx.guild).pin_bot_messages()
             return await ctx.send(f"No channels configured.\n**Bot messages pinning**: {bot_pin}")
 
-        bot_pin = await self.config.guild(ctx.guild).pin_bot_messages()
         if channel:
             conf = channels.get(str(channel.id))
             if not conf:
@@ -202,7 +202,6 @@ class ReactionPinner(commands.Cog):
         if message.pinned:
             return
 
-        # Bot message support (now enabled by default)
         pin_bot = await self.config.guild(guild).pin_bot_messages()
         if message.author.bot and not pin_bot:
             return
