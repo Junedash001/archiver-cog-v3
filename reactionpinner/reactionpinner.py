@@ -4,6 +4,7 @@ from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
 import logging
 from typing import Optional, List, Dict
+from datetime import timedelta   # ← Fixed import
 
 log = logging.getLogger("red.reactionpinner")
 
@@ -50,7 +51,6 @@ class ReactionPinner(commands.Cog):
         status = "enabled" if not enabled else "disabled"
         await ctx.send(f"✅ ReactionPinner is now **{status}**.")
 
-    # Channel subgroup
     @pinreact.group(name="channel", invoke_without_command=True)
     async def channel_group(self, ctx: commands.Context):
         """Manage per-channel settings."""
@@ -120,14 +120,14 @@ class ReactionPinner(commands.Cog):
 
     @channel_group.command(name="remove")
     async def ch_remove(self, ctx: commands.Context, channel: discord.TextChannel):
-        """Remove a channel from ReactionPinner settings completely."""
+        """Remove a channel from ReactionPinner settings completely (disables it)."""
         ch_id = str(channel.id)
         async with self.config.guild(ctx.guild).channels() as channels:
             if ch_id in channels:
                 del channels[ch_id]
-                await ctx.send(f"✅ Successfully removed {channel.mention} from ReactionPinner settings.")
+                await ctx.send(f"✅ Removed {channel.mention} from settings. Auto-pinning is now disabled for this channel.")
             else:
-                await ctx.send(f"{channel.mention} was not in the settings list.")
+                await ctx.send(f"{channel.mention} was not configured.")
 
     @channel_group.command(name="settings")
     async def ch_settings(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
@@ -189,7 +189,8 @@ class ReactionPinner(commands.Cog):
             return
 
         try:
-            await discord.utils.sleep_until(discord.utils.utcnow() + discord.timedelta(milliseconds=600))
+            # Small delay so Discord updates the reaction count
+            await discord.utils.sleep_until(discord.utils.utcnow() + timedelta(milliseconds=600))
             message = await channel.fetch_message(payload.message_id)
         except Exception:
             return
