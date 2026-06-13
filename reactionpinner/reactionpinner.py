@@ -3,43 +3,44 @@ from redbot.core import commands, Config, app_commands
 from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 log = logging.getLogger("red.reactionpinner")
 
 class ReactionPinner(commands.Cog):
-    """Automatically pins messages that reach a set number of reactions (per-channel config)."""
+    """Automatically pins messages based on reaction count (per-channel)."""
 
     def __init__(self, bot: Red):
         self.bot = bot
-        self.config = Config.get_conf(self, identifier=1234567890, force_registration=True)
+        self.config = Config.get_conf(self, identifier=9876543210, force_registration=True)
 
-        defaults_guild = {
-            "enabled": True,
-            "channels": {},  # str(channel_id): {"threshold": int, "emojis": list[str], "enabled": bool}
-        }
-        self.config.register_guild(**defaults_guild)
+        self.config.register_guild(
+            enabled=True,
+            channels={}  # channel_id (str): {"enabled": bool, "threshold": int, "emojis": list[str]}
+        )
 
-    # ====================== HELPER ======================
-    async def _get_channel_settings(self, channel) -> dict:
-        guild_settings = await self.config.guild(channel.guild).all()
-        if not guild_settings["enabled"]:
+    async def _get_channel_config(self, channel) -> Dict:
+        """Get config for a channel, with proper defaults."""
+        guild_config = await self.config.guild(channel.guild).all()
+        if not guild_config["enabled"]:
             return {"enabled": False}
 
         ch_id = str(channel.id)
-        channels = guild_settings["channels"]
-        if ch_id in channels:
-            return channels[ch_id]
-        # Default: disabled unless explicitly configured
-        return {"enabled": False, "threshold": 5, "emojis": []}
+        ch_config = guild_config["channels"].get(ch_id, {})
+        
+        return {
+            "enabled": ch_config.get("enabled", False),
+            "threshold": ch_config.get("threshold", 5),
+            "emojis": ch_config.get("emojis", [])
+        }
 
-    def _emoji_matches(self, reaction_emoji: discord.PartialEmoji, config_emojis: List[str]) -> bool:
-        """Check if reaction matches any configured emoji."""
-        react_str = str(reaction_emoji)
-        return react_str in config_emojis
+    def _emoji_matches(self, reaction_emoji, config_emojis: List[str]) -> bool:
+        if not config_emojis:
+            return True  # Count all
+        return str(reaction_emoji) in config_emojis
 
     # ====================== COMMANDS ======================
-    @commands.group(name="pinreact", aliases=["reactionpin"])
+    @commands.group(name="pinreact", aliases=["reactionpin", "rpin"])
     @commands.guild_only()
     @commands.admin_or_permissions(manage_messages=True)
     async def pinreact(self, ctx: commands.Context):
@@ -48,144 +49,124 @@ class ReactionPinner(commands.Cog):
             await ctx.send_help()
 
     @pinreact.command(name="toggle")
-    async def toggle(self, ctx: commands.Context):
-        """Toggle the entire cog on/off for this server."""
+    async def toggle_cog(self, ctx: commands.Context):
+        """Toggle the entire cog on/off."""
         enabled = await self.config.guild(ctx.guild).enabled()
         await self.config.guild(ctx.guild).enabled.set(not enabled)
         status = "enabled" if not enabled else "disabled"
-        await ctx.send(f"✅ ReactionPinner is now **{status}** for the server.")
+        await ctx.send(f"✅ ReactionPinner is now **{status}**.")
 
-    # --- Per-channel commands ---
+    # --- Channel group ---
     @pinreact.group(name="channel")
     async def channel_group(self, ctx: commands.Context):
-        """Manage per-channel settings."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help()
 
     @channel_group.command(name="threshold")
     async def ch_threshold(self, ctx: commands.Context, channel: discord.TextChannel, threshold: int):
-        """Set reaction threshold for a specific channel."""
+        """Set threshold for a channel."""
         if threshold < 1:
-            return await ctx.send("Threshold must be at least 1.")
+            return await ctx.send("❌ Threshold must be at least 1.")
         
         async with self.config.guild(ctx.guild).channels() as channels:
             ch_id = str(channel.id)
-            if ch_id not in channels:
-                channels[ch_id] = {"threshold": threshold, "emojis": [], "enabled": True}
-            else:
-                channels[ch_id]["threshold"] = threshold
-                if "enabled" not in channels[ch_id]:
-                    channels[ch_id]["enabled"] = True
+            channels.setdefault(ch_id, {})["threshold"] = threshold
+            channels[ch_id].setdefault("enabled", True)
+            channels[ch_id].setdefault("emojis", [])
+        
         await ctx.send(f"✅ Threshold for {channel.mention} set to **{threshold}**.")
 
     @channel_group.command(name="emojis")
-    async def ch_emojis(self, ctx: commands.Context, channel: discord.TextChannel, *, action: str = None):
-        """View or manage emojis for a channel. Use: add <emoji>, remove <emoji>, clear, or no arg to view."""
+    async def ch_emojis(self, ctx: commands.Context, channel: discord.TextChannel, action: str = None, *, emoji: str = None):
+        """Manage emojis: `add <emoji>`, `remove <emoji>`, `clear`, or nothing to view."""
         ch_id = str(channel.id)
         async with self.config.guild(ctx.guild).channels() as channels:
-            settings = channels.setdefault(ch_id, {"threshold": 5, "emojis": [], "enabled": True})
-            
+            ch_conf = channels.setdefault(ch_id, {"enabled": True, "threshold": 5, "emojis": []})
+
             if not action:
-                emojis = settings.get("emojis", [])
-                msg = f"**Emojis for {channel.mention}**\n"
-                if emojis:
-                    msg += "\n".join(f"• {e}" for e in emojis)
-                else:
-                    msg += "All reactions count (no filter)."
-                return await ctx.send(msg)
+                emojis = ch_conf.get("emojis", [])
+                text = f"**Emojis for {channel.mention}**\n"
+                text += "\n".join(f"• {e}" for e in emojis) if emojis else "• All reactions count"
+                return await ctx.send(text)
 
-            parts = action.strip().split(maxsplit=1)
-            cmd = parts[0].lower()
-            emoji_str = parts[1] if len(parts) > 1 else None
+            action = action.lower()
+            if action == "clear":
+                ch_conf["emojis"] = []
+                await ctx.send(f"✅ Cleared emoji filter for {channel.mention}.")
+                return
 
-            if cmd == "add" and emoji_str:
-                # Validate emoji
-                try:
-                    emoji = await commands.EmojiConverter().convert(ctx, emoji_str)
-                    emoji_str = str(emoji)
-                except commands.BadArgument:
-                    pass  # unicode or raw
-                if emoji_str not in settings["emojis"]:
-                    settings["emojis"].append(emoji_str)
-                    await ctx.send(f"✅ Added {emoji_str} to {channel.mention}")
+            if not emoji:
+                return await ctx.send("❌ Provide an emoji.")
+
+            # Convert emoji if custom
+            try:
+                converted = await commands.EmojiConverter().convert(ctx, emoji)
+                emoji_str = str(converted)
+            except commands.BadArgument:
+                emoji_str = emoji.strip()
+
+            if action == "add":
+                if emoji_str not in ch_conf["emojis"]:
+                    ch_conf["emojis"].append(emoji_str)
+                    await ctx.send(f"✅ Added {emoji_str}")
                 else:
-                    await ctx.send("Emoji already in list.")
-            elif cmd == "remove" and emoji_str:
-                try:
-                    emoji = await commands.EmojiConverter().convert(ctx, emoji_str)
-                    emoji_str = str(emoji)
-                except:
-                    pass
-                if emoji_str in settings["emojis"]:
-                    settings["emojis"].remove(emoji_str)
+                    await ctx.send("Already in list.")
+            elif action == "remove":
+                if emoji_str in ch_conf["emojis"]:
+                    ch_conf["emojis"].remove(emoji_str)
                     await ctx.send(f"✅ Removed {emoji_str}")
                 else:
-                    await ctx.send("Emoji not in list.")
-            elif cmd == "clear":
-                settings["emojis"] = []
-                await ctx.send(f"✅ Cleared emoji filter for {channel.mention} (now counts all reactions).")
+                    await ctx.send("Not in list.")
             else:
-                await ctx.send("Usage: `add <emoji>`, `remove <emoji>`, or `clear`")
+                await ctx.send("Usage: `add <emoji> | remove <emoji> | clear`")
 
     @channel_group.command(name="toggle")
     async def ch_toggle(self, ctx: commands.Context, channel: discord.TextChannel):
-        """Toggle auto-pinning for a specific channel."""
+        """Toggle a specific channel."""
         ch_id = str(channel.id)
         async with self.config.guild(ctx.guild).channels() as channels:
-            settings = channels.setdefault(ch_id, {"threshold": 5, "emojis": [], "enabled": True})
-            settings["enabled"] = not settings.get("enabled", True)
-            status = "enabled" if settings["enabled"] else "disabled"
-        await ctx.send(f"✅ Auto-pinning for {channel.mention} is now **{status}**.")
+            ch_conf = channels.setdefault(ch_id, {"enabled": True, "threshold": 5, "emojis": []})
+            ch_conf["enabled"] = not ch_conf.get("enabled", True)
+            status = "enabled" if ch_conf["enabled"] else "disabled"
+        await ctx.send(f"✅ {channel.mention} is now **{status}**.")
 
     @channel_group.command(name="settings")
     async def ch_settings(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
-        """Show settings for a channel (or all configured channels)."""
-        guild_settings = await self.config.guild(ctx.guild).all()
-        channels = guild_settings["channels"]
-        
+        """Show settings."""
+        guild_conf = await self.config.guild(ctx.guild).all()
+        channels = guild_conf["channels"]
+
         if not channels:
-            return await ctx.send("No channels configured yet.")
+            return await ctx.send("No channels configured.")
 
         if channel:
             ch_id = str(channel.id)
-            if ch_id not in channels:
-                return await ctx.send(f"No specific settings for {channel.mention}. Uses global behavior (disabled).")
-            settings = channels[ch_id]
-            emojis = settings.get("emojis", [])
-            msg = (
-                f"**{channel.mention}**\n"
-                f"Enabled: {settings.get('enabled', False)}\n"
-                f"Threshold: {settings.get('threshold', 5)}\n"
-                f"Emojis: {', '.join(emojis) if emojis else 'All reactions'}"
-            )
+            conf = channels.get(ch_id)
+            if not conf:
+                return await ctx.send(f"{channel.mention} has no custom settings (disabled by default).")
+            emojis = conf.get("emojis", [])
+            msg = f"**{channel.mention}**\nEnabled: {conf.get('enabled', False)}\nThreshold: {conf.get('threshold', 5)}\nEmojis: {', '.join(emojis) if emojis else 'All'}"
             await ctx.send(box(msg))
         else:
-            # All channels
-            pages = []
-            for ch_id, settings in channels.items():
+            out = []
+            for ch_id, conf in channels.items():
                 ch = ctx.guild.get_channel(int(ch_id))
-                name = ch.mention if ch else f"Unknown ({ch_id})"
-                emojis = settings.get("emojis", [])
-                page = (
-                    f"{name}\n"
-                    f"Enabled: {settings.get('enabled', False)}\n"
-                    f"Threshold: {settings.get('threshold', 5)}\n"
-                    f"Emojis: {', '.join(emojis) if emojis else 'All'}"
-                )
-                pages.append(page)
-            for page in pagify("\n\n".join(pages), page_length=1800):
+                name = ch.mention if ch else ch_id
+                emojis = conf.get("emojis", [])
+                out.append(f"{name} | Enabled: {conf.get('enabled')} | Thresh: {conf.get('threshold')} | Emojis: {emojis or 'All'}")
+            for page in pagify("\n".join(out), page_length=1900):
                 await ctx.send(box(page))
 
     # ====================== LISTENERS ======================
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        await self._handle_reaction(payload)
+        await self._process_reaction(payload)
 
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
-        await self._handle_reaction(payload)
+        await self._process_reaction(payload)
 
-    async def _handle_reaction(self, payload: discord.RawReactionActionEvent):
+    async def _process_reaction(self, payload: discord.RawReactionActionEvent):
         if not payload.guild_id:
             return
         guild = self.bot.get_guild(payload.guild_id)
@@ -196,37 +177,37 @@ class ReactionPinner(commands.Cog):
         if not isinstance(channel, (discord.TextChannel, discord.Thread)):
             return
 
-        settings = await self._get_channel_settings(channel)
-        if not settings.get("enabled", False):
+        config = await self._get_channel_config(channel)
+        if not config.get("enabled"):
             return
 
         try:
+            # Small delay to let Discord update reaction count
+            await discord.utils.sleep_until(discord.utils.utcnow() + discord.timedelta(milliseconds=800))
             message = await channel.fetch_message(payload.message_id)
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
+        except Exception as e:
+            log.debug(f"Fetch error: {e}")
             return
 
         if message.pinned or message.author.bot:
             return
 
-        threshold = settings.get("threshold", 5)
-        config_emojis = settings.get("emojis", [])
+        threshold = config["threshold"]
+        config_emojis = config["emojis"]
 
-        # Count relevant reactions
+        # Count matching reactions
         if config_emojis:
-            count = sum(
-                r.count for r in message.reactions
-                if self._emoji_matches(r.emoji, config_emojis)
-            )
+            count = sum(r.count for r in message.reactions if self._emoji_matches(r.emoji, config_emojis))
         else:
             count = sum(r.count for r in message.reactions)
 
         if count >= threshold:
             try:
-                await message.pin(
-                    reason=f"Reached {count} reactions (threshold: {threshold}) in #{channel.name}"
-                )
-                log.info(f"Pinned message {message.id} in {guild.name} #{channel.name}")
+                await message.pin(reason=f"Auto-pinned • {count} reactions")
+                log.info(f"Pinned {message.id} in {guild} #{channel.name} ({count} reactions)")
             except discord.Forbidden:
-                log.warning(f"Missing pin permissions in {guild.name} #{channel.name}")
+                log.warning(f"Can't pin in {guild} #{channel.name} (missing perms)")
             except Exception as e:
-                log.error(f"Pin failed: {e}")
+                log.error(f"Pin error: {e}")
