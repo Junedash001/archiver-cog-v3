@@ -4,7 +4,7 @@ from redbot.core.bot import Red
 from redbot.core.utils.chat_formatting import box, pagify
 import logging
 from typing import Optional, List, Dict
-from datetime import timedelta   # ← Fixed import
+from datetime import timedelta
 
 log = logging.getLogger("red.reactionpinner")
 
@@ -16,7 +16,8 @@ class ReactionPinner(commands.Cog):
         self.config = Config.get_conf(self, identifier=9876543210, force_registration=True)
         self.config.register_guild(
             enabled=True,
-            channels={}  # str(channel_id): {"enabled": bool, "threshold": int, "emojis": list}
+            channels={},  
+            pin_bot_messages=True   # ← Now enabled by default
         )
 
     async def _get_channel_config(self, channel) -> Dict:
@@ -28,28 +29,35 @@ class ReactionPinner(commands.Cog):
         return {
             "enabled": ch_config.get("enabled", False),
             "threshold": ch_config.get("threshold", 5),
-            "emojis": ch_config.get("emojis", [])
+            "emojis": ch_conf.get("emojis", [])
         }
 
     def _emoji_matches(self, reaction_emoji, config_emojis: List[str]) -> bool:
         return not config_emojis or str(reaction_emoji) in config_emojis
 
-    # ====================== PREFIX COMMANDS ======================
+    # ====================== COMMANDS ======================
     @commands.group(name="pinreact", aliases=["reactionpin", "rpin"])
     @commands.guild_only()
     @commands.admin_or_permissions(manage_messages=True)
     async def pinreact(self, ctx: commands.Context):
-        """Manage ReactionPinner settings."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help()
 
     @pinreact.command(name="toggle")
     async def toggle_cog(self, ctx: commands.Context):
-        """Toggle the cog on/off for the whole server."""
+        """Toggle the entire cog on/off."""
         enabled = await self.config.guild(ctx.guild).enabled()
         await self.config.guild(ctx.guild).enabled.set(not enabled)
         status = "enabled" if not enabled else "disabled"
         await ctx.send(f"✅ ReactionPinner is now **{status}**.")
+
+    @pinreact.command(name="botmessages")
+    async def toggle_bot_messages(self, ctx: commands.Context):
+        """Toggle whether bot messages can be auto-pinned (currently enabled by default)."""
+        current = await self.config.guild(ctx.guild).pin_bot_messages()
+        await self.config.guild(ctx.guild).pin_bot_messages.set(not current)
+        status = "enabled" if not current else "disabled"
+        await ctx.send(f"✅ Auto-pinning of **bot messages** is now **{status}**.")
 
     @pinreact.group(name="channel", invoke_without_command=True)
     async def channel_group(self, ctx: commands.Context):
@@ -58,7 +66,6 @@ class ReactionPinner(commands.Cog):
 
     @channel_group.command(name="threshold")
     async def ch_threshold(self, ctx: commands.Context, channel: discord.TextChannel, threshold: int):
-        """Set the reaction threshold for a channel."""
         if threshold < 1:
             return await ctx.send("❌ Threshold must be at least 1.")
         async with self.config.guild(ctx.guild).channels() as channels:
@@ -68,7 +75,6 @@ class ReactionPinner(commands.Cog):
 
     @channel_group.command(name="emojis")
     async def ch_emojis(self, ctx: commands.Context, channel: discord.TextChannel, action: str = None, *, emoji: str = None):
-        """Manage monitored emojis: `add <emoji>`, `remove <emoji>`, `clear`, or blank to view."""
         ch_id = str(channel.id)
         async with self.config.guild(ctx.guild).channels() as channels:
             ch_conf = channels.setdefault(ch_id, {"enabled": True, "threshold": 5, "emojis": []})
@@ -85,7 +91,7 @@ class ReactionPinner(commands.Cog):
                 return await ctx.send(f"✅ Emoji filter cleared for {channel.mention}.")
 
             if not emoji:
-                return await ctx.send("❌ Please provide an emoji after `add` or `remove`.")
+                return await ctx.send("❌ Please provide an emoji.")
 
             try:
                 converted = await commands.EmojiConverter().convert(ctx, emoji)
@@ -110,7 +116,6 @@ class ReactionPinner(commands.Cog):
 
     @channel_group.command(name="toggle")
     async def ch_toggle(self, ctx: commands.Context, channel: discord.TextChannel):
-        """Toggle auto-pinning for one channel."""
         ch_id = str(channel.id)
         async with self.config.guild(ctx.guild).channels() as channels:
             ch_conf = channels.setdefault(ch_id, {"enabled": True, "threshold": 5, "emojis": []})
@@ -120,24 +125,24 @@ class ReactionPinner(commands.Cog):
 
     @channel_group.command(name="remove")
     async def ch_remove(self, ctx: commands.Context, channel: discord.TextChannel):
-        """Remove a channel from ReactionPinner settings completely (disables it)."""
         ch_id = str(channel.id)
         async with self.config.guild(ctx.guild).channels() as channels:
             if ch_id in channels:
                 del channels[ch_id]
-                await ctx.send(f"✅ Removed {channel.mention} from settings. Auto-pinning is now disabled for this channel.")
+                await ctx.send(f"✅ Removed {channel.mention} from settings.")
             else:
                 await ctx.send(f"{channel.mention} was not configured.")
 
     @channel_group.command(name="settings")
     async def ch_settings(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None):
-        """Show settings for channel(s)."""
         guild_conf = await self.config.guild(ctx.guild).all()
         channels = guild_conf.get("channels", {})
 
-        if not channels:
-            return await ctx.send("No channels configured yet.")
+        if not channels and not channel:
+            bot_pin = await self.config.guild(ctx.guild).pin_bot_messages()
+            return await ctx.send(f"No channels configured.\n**Bot messages pinning**: {bot_pin}")
 
+        bot_pin = await self.config.guild(ctx.guild).pin_bot_messages()
         if channel:
             conf = channels.get(str(channel.id))
             if not conf:
@@ -151,7 +156,7 @@ class ReactionPinner(commands.Cog):
             )
             await ctx.send(box(msg))
         else:
-            lines = []
+            lines = [f"**Bot messages pinning**: {bot_pin}\n"]
             for ch_id, conf in channels.items():
                 ch = ctx.guild.get_channel(int(ch_id))
                 display_name = f"#{ch.name}" if ch else f"#Unknown ({ch_id})"
@@ -189,13 +194,17 @@ class ReactionPinner(commands.Cog):
             return
 
         try:
-            # Small delay so Discord updates the reaction count
             await discord.utils.sleep_until(discord.utils.utcnow() + timedelta(milliseconds=600))
             message = await channel.fetch_message(payload.message_id)
         except Exception:
             return
 
-        if message.pinned or message.author.bot:
+        if message.pinned:
+            return
+
+        # Bot message support (now enabled by default)
+        pin_bot = await self.config.guild(guild).pin_bot_messages()
+        if message.author.bot and not pin_bot:
             return
 
         threshold = config["threshold"]
