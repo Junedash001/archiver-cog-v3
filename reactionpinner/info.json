@@ -1,8 +1,8 @@
 {
     "author": ["YourName"],
     "name": "ReactionPinner",
-    "description": "Automatically pins messages that reach a configurable number of reactions. Supports per-channel thresholds and specific emojis.",
-    "short": "Auto-pin via reactions (per-channel)",
+    "description": "Automatically pins messages that reach a configurable number of reactions per channel and emoji.",
+    "short": "Per-channel reaction auto-pin",
     "requirements": [],
     "tags": ["utility", "moderation", "reactions"],
     "min_bot_version": "3.5.0"
