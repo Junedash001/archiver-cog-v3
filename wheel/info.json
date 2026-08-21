@@ -1,0 +1,10 @@
+{
+    "author": ["YourName"],
+    "name": "Wheel",
+    "short": "Spin a temporary picker wheel from options.",
+    "description": "Generate a spinning wheel GIF from a list of options without saving anything. Perfect for quick decisions.",
+    "tags": ["fun", "utility", "gif", "wheel"],
+    "requirements": ["Pillow", "imageio", "aiohttp"],
+    "min_bot_version": "3.5.0",
+    "end_user_data_statement": "This cog does not store any end user data."
+}
