@@ -31,7 +31,7 @@ class Wheel(commands.Cog):
 
     @commands.command(name="wheel")
     @commands.guild_only()
-    @commands.cooldown(1, 10, commands.BucketType.user)  # ← 10 second cooldown
+    @commands.cooldown(1, 10, commands.BucketType.user)
     async def wheel(self, ctx: commands.Context, *options: str):
         """
         Spin a temporary wheel with the given options.
@@ -75,11 +75,11 @@ class Wheel(commands.Cog):
         options: list[str],
         winner_idx: int,
     ) -> io.BytesIO:
-        # Timing & quality settings
+        # === Timing settings ===
         SPIN_SECONDS = 4.0
-        HOLD_SECONDS = 6.5          # ← longer hold
-        SPIN_FRAMES = 48            # ← more frames (smoother)
-        HOLD_FRAMES = 65            # ← more hold frames
+        HOLD_SECONDS = 7.0          # ← clearly longer hold
+        SPIN_FRAMES = 48
+        HOLD_FRAMES = 90            # ← many more hold frames
 
         size = 500
         center = size // 2
@@ -94,14 +94,14 @@ class Wheel(commands.Cog):
 
         imgs: list[Image.Image] = []
 
-        # Spinning frames
+        # Spinning part
         for frame in range(SPIN_FRAMES):
             t = frame / (SPIN_FRAMES - 1)
             ease = 1 - (1 - t) ** 2.7
             offset = ease * final_offset
             imgs.append(self._draw_frame(options, colors, offset, size, center, radius, sector))
 
-        # Hold frames
+        # Long hold
         final_frame = self._draw_frame(options, colors, final_offset, size, center, radius, sector)
         for _ in range(HOLD_FRAMES):
             imgs.append(final_frame.copy())
@@ -116,7 +116,7 @@ class Wheel(commands.Cog):
             imgs,
             format="GIF",
             duration=frame_duration,
-            loop=0,
+            loop=1,               # ← Play only once (important!)
         )
         bio.seek(0)
         return bio
