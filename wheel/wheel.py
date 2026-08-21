@@ -2,7 +2,6 @@ import io
 import math
 import random
 import colorsys
-import asyncio
 import discord
 from PIL import Image, ImageDraw, ImageFont
 import imageio
@@ -51,26 +50,21 @@ class Wheel(commands.Cog):
             return await ctx.send("❌ You need at least **2** valid options.")
 
         winner_idx = random.randrange(len(options))
-        winner = options[winner_idx]
 
         async with ctx.typing():
             try:
-                gif, spin_seconds = await self._make_wheel_gif(options, winner_idx)
+                gif = await self._make_wheel_gif(options, winner_idx)
             except Exception as e:
                 return await ctx.send(f"❌ Failed to generate wheel: `{e}`")
 
         file = discord.File(fp=gif, filename="wheel.gif")
         await ctx.send(file=file)
 
-        # Wait for the spin to finish, then announce
-        await asyncio.sleep(spin_seconds + 0.4)  # small buffer for upload delay
-        await ctx.send(f"🎉 The wheel landed on **{winner}**!")
-
     def _get_colors(self, n: int) -> list[tuple[int, int, int]]:
         cols = []
         for i in range(n):
             h = (i / n + random.uniform(-0.03, 0.03)) % 1.0
-            s = random.uniform(0.32, 0.50)   # muted
+            s = random.uniform(0.32, 0.50)
             v = random.uniform(0.80, 0.94)
             r, g, b = colorsys.hsv_to_rgb(h, s, v)
             cols.append((int(r * 255), int(g * 255), int(b * 255)))
@@ -80,12 +74,11 @@ class Wheel(commands.Cog):
         self,
         options: list[str],
         winner_idx: int,
-    ) -> tuple[io.BytesIO, float]:
-        # Timing configuration
+    ) -> io.BytesIO:
         SPIN_SECONDS = 3.6
         HOLD_SECONDS = 5.0
         SPIN_FRAMES = 36
-        HOLD_FRAMES = 50          # 50 frames ≈ 5 seconds when total duration is correct
+        HOLD_FRAMES = 50
 
         size = 500
         center = size // 2
@@ -95,19 +88,18 @@ class Wheel(commands.Cog):
 
         rotations = 4
         mid_deg = (winner_idx + 0.5) * sector
-        delta = (270 - mid_deg) % 360
+        # Target is now the bottom (90°) instead of top (270°)
+        delta = (90 - mid_deg) % 360
         final_offset = rotations * 360 + delta
 
         imgs: list[Image.Image] = []
 
-        # Spinning frames
         for frame in range(SPIN_FRAMES):
             t = frame / (SPIN_FRAMES - 1)
             ease = 1 - (1 - t) ** 2.7
             offset = ease * final_offset
             imgs.append(self._draw_frame(options, colors, offset, size, center, radius, sector))
 
-        # Hold frames
         final_frame = self._draw_frame(options, colors, final_offset, size, center, radius, sector)
         for _ in range(HOLD_FRAMES):
             imgs.append(final_frame.copy())
@@ -125,7 +117,7 @@ class Wheel(commands.Cog):
             loop=0,
         )
         bio.seek(0)
-        return bio, SPIN_SECONDS
+        return bio
 
     def _draw_frame(
         self,
@@ -181,10 +173,14 @@ class Wheel(commands.Cog):
             rot = text_im.rotate(-math.degrees(ang) + 90, expand=True, resample=Image.BICUBIC)
             im.paste(rot, (int(tx - rot.width / 2), int(ty - rot.height / 2)), rot)
 
-        # Arrow
-        arrow = [(center - 18, 3), (center + 18, 3), (center, 30)]
-        draw.polygon(arrow, fill=(25, 25, 25), outline=(255, 255, 255))
-        draw.line(arrow + [arrow[0]], fill=(255, 255, 255), width=2)
+        # Large pointer at the BOTTOM
+        arrow = [
+            (center - 32, size - 6),   # left base
+            (center + 32, size - 6),   # right base
+            (center, size - 52),       # tip (pointing up)
+        ]
+        draw.polygon(arrow, fill=(25, 25, 25))
+        draw.line(arrow + [arrow[0]], fill=(255, 255, 255), width=3)
 
         # Outer ring
         draw.ellipse([5, 5, size - 5, size - 5], outline=(40, 40, 40), width=5)
