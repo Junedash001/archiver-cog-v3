@@ -14,7 +14,6 @@ class Wheel(commands.Cog):
     def __init__(self, bot: Red):
         self.bot = bot
         try:
-            # Larger, bolder font for better visibility
             self.font = ImageFont.truetype(
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26
             )
@@ -48,14 +47,15 @@ class Wheel(commands.Cog):
             gif = await self._make_wheel_gif(options, winner_idx)
 
         file = discord.File(fp=gif, filename="wheel.gif")
-        await ctx.send(file=file)  # ← no winner text announced
+        await ctx.send(file=file)
 
     def _get_colors(self, n: int) -> list[tuple[int, int, int]]:
+        """Generate muted / less saturated colors."""
         cols = []
         for i in range(n):
-            h = (i / n + random.uniform(-0.04, 0.04)) % 1.0
-            s = random.uniform(0.65, 0.95)
-            v = random.uniform(0.75, 1.0)
+            h = (i / n + random.uniform(-0.03, 0.03)) % 1.0
+            s = random.uniform(0.35, 0.55)   # ← much lower saturation
+            v = random.uniform(0.78, 0.95)
             r, g, b = colorsys.hsv_to_rgb(h, s, v)
             cols.append((int(r * 255), int(g * 255), int(b * 255)))
         return cols
@@ -64,9 +64,9 @@ class Wheel(commands.Cog):
         self,
         options: list[str],
         winner_idx: int,
-        frames: int = 40,          # spinning frames
-        hold_frames: int = 28,     # ← longer pause after stop
-        duration: float = 4.8,     # total GIF length (spin + hold)
+        frames: int = 42,          # spinning frames
+        hold_frames: int = 55,     # ← significantly longer hold
+        duration: float = 6.5,     # total length (spin + long hold)
     ) -> io.BytesIO:
         size = 520
         center = size // 2
@@ -81,14 +81,14 @@ class Wheel(commands.Cog):
 
         imgs: list[Image.Image] = []
 
-        # --- Spinning part ---
+        # Spinning part
         for frame in range(frames):
             t = frame / (frames - 1)
-            ease = 1 - (1 - t) ** 2.8          # stronger ease-out
+            ease = 1 - (1 - t) ** 2.8
             offset = ease * final_offset
             imgs.append(self._draw_frame(options, colors, offset, size, center, radius, sector))
 
-        # --- Hold the final position longer ---
+        # Long hold on the final frame
         final_frame = self._draw_frame(options, colors, final_offset, size, center, radius, sector)
         for _ in range(hold_frames):
             imgs.append(final_frame.copy())
@@ -127,7 +127,7 @@ class Wheel(commands.Cog):
                 start,
                 end,
                 fill=col,
-                outline=(25, 25, 25),
+                outline=(30, 30, 30),
                 width=3,
             )
 
@@ -140,22 +140,15 @@ class Wheel(commands.Cog):
 
             # High contrast text
             brightness = 0.299 * col[0] + 0.587 * col[1] + 0.114 * col[2]
-            fg = (10, 10, 10) if brightness > 145 else (255, 255, 255)
-            stroke = (255, 255, 255) if brightness > 145 else (0, 0, 0)
+            fg = (15, 15, 15) if brightness > 150 else (255, 255, 255)
+            stroke = (255, 255, 255) if brightness > 150 else (0, 0, 0)
 
-            # Create text with strong outline
+            # Create text (no background pill)
             bbox = draw.textbbox((0, 0), label, font=self.font)
             tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            pad = 8
+            pad = 6
             text_im = Image.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
             td = ImageDraw.Draw(text_im)
-
-            # Soft background pill for extra readability
-            td.rounded_rectangle(
-                [2, 2, tw + pad * 2 - 2, th + pad * 2 - 2],
-                radius=8,
-                fill=(0, 0, 0, 140) if brightness > 145 else (255, 255, 255, 140),
-            )
 
             td.text(
                 (pad, pad),
@@ -166,7 +159,7 @@ class Wheel(commands.Cog):
                 stroke_fill=stroke,
             )
 
-            # Rotate text to follow the slice
+            # Rotate text
             rot = text_im.rotate(-math.degrees(ang) + 90, expand=True, resample=Image.BICUBIC)
             im.paste(rot, (int(tx - rot.width / 2), int(ty - rot.height / 2)), rot)
 
@@ -176,10 +169,10 @@ class Wheel(commands.Cog):
             (center + 20, 2),
             (center, 32),
         ]
-        draw.polygon(arrow, fill=(15, 15, 15), outline=(255, 255, 255))
+        draw.polygon(arrow, fill=(20, 20, 20), outline=(255, 255, 255))
         draw.polygon(arrow, outline=(255, 255, 255), width=2)
 
         # Outer ring
-        draw.ellipse([6, 6, size - 6, size - 6], outline=(30, 30, 30), width=5)
+        draw.ellipse([6, 6, size - 6, size - 6], outline=(35, 35, 35), width=5)
 
         return im
