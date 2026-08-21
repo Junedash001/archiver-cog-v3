@@ -14,16 +14,25 @@ class Wheel(commands.Cog):
 
     def __init__(self, bot: Red):
         self.bot = bot
-        try:
-            self.font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26
-            )
-        except OSError:
-            self.font = ImageFont.load_default()
+        self.font = self._load_font(26)
+
+    def _load_font(self, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+        paths = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ]
+        for path in paths:
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                continue
+        return ImageFont.load_default()
 
     @commands.command(name="wheel")
     @commands.guild_only()
-    @commands.cooldown(1, 10, commands.BucketType.user)
+    @commands.cooldown(1, 15, commands.BucketType.user)
     async def wheel(self, ctx: commands.Context, *options: str):
         """
         Spin a temporary wheel with the given options.
@@ -34,9 +43,8 @@ class Wheel(commands.Cog):
         """
         if len(options) < 2:
             return await ctx.send("❌ You need at least **2** options to spin a wheel.")
-
-        if len(options) > 20:
-            return await ctx.send("❌ Maximum **20** options allowed.")
+        if len(options) > 16:
+            return await ctx.send("❌ Maximum **16** options allowed.")
 
         options = [opt.strip() for opt in options if opt.strip()]
         if len(options) < 2:
@@ -46,22 +54,24 @@ class Wheel(commands.Cog):
         winner = options[winner_idx]
 
         async with ctx.typing():
-            gif, spin_duration = await self._make_wheel_gif(options, winner_idx)
+            try:
+                gif, spin_seconds = await self._make_wheel_gif(options, winner_idx)
+            except Exception as e:
+                return await ctx.send(f"❌ Failed to generate wheel: `{e}`")
 
         file = discord.File(fp=gif, filename="wheel.gif")
         await ctx.send(file=file)
 
-        # Wait until the spinning part is over, then announce the winner
-        await asyncio.sleep(spin_duration)
+        # Wait for the spin to finish, then announce
+        await asyncio.sleep(spin_seconds + 0.4)  # small buffer for upload delay
         await ctx.send(f"🎉 The wheel landed on **{winner}**!")
 
     def _get_colors(self, n: int) -> list[tuple[int, int, int]]:
-        """Generate muted / less saturated colors."""
         cols = []
         for i in range(n):
             h = (i / n + random.uniform(-0.03, 0.03)) % 1.0
-            s = random.uniform(0.35, 0.55)
-            v = random.uniform(0.78, 0.95)
+            s = random.uniform(0.32, 0.50)   # muted
+            v = random.uniform(0.80, 0.94)
             r, g, b = colorsys.hsv_to_rgb(h, s, v)
             cols.append((int(r * 255), int(g * 255), int(b * 255)))
         return cols
@@ -70,12 +80,14 @@ class Wheel(commands.Cog):
         self,
         options: list[str],
         winner_idx: int,
-        spin_frames: int = 42,
-        hold_frames: int = 70,          # ≈ 5 seconds of hold
-        spin_duration: float = 3.8,     # how long the actual spin lasts
-        hold_duration: float = 5.0,     # exact 5 second hold
     ) -> tuple[io.BytesIO, float]:
-        size = 520
+        # Timing configuration
+        SPIN_SECONDS = 3.6
+        HOLD_SECONDS = 5.0
+        SPIN_FRAMES = 36
+        HOLD_FRAMES = 50          # 50 frames ≈ 5 seconds when total duration is correct
+
+        size = 500
         center = size // 2
         radius = center - 14
         sector = 360.0 / len(options)
@@ -89,29 +101,31 @@ class Wheel(commands.Cog):
         imgs: list[Image.Image] = []
 
         # Spinning frames
-        for frame in range(spin_frames):
-            t = frame / (spin_frames - 1)
-            ease = 1 - (1 - t) ** 2.8
+        for frame in range(SPIN_FRAMES):
+            t = frame / (SPIN_FRAMES - 1)
+            ease = 1 - (1 - t) ** 2.7
             offset = ease * final_offset
             imgs.append(self._draw_frame(options, colors, offset, size, center, radius, sector))
 
-        # 5-second hold on the final frame
+        # Hold frames
         final_frame = self._draw_frame(options, colors, final_offset, size, center, radius, sector)
-        for _ in range(hold_frames):
+        for _ in range(HOLD_FRAMES):
             imgs.append(final_frame.copy())
 
-        total_duration = spin_duration + hold_duration
+        total_frames = len(imgs)
+        total_duration = SPIN_SECONDS + HOLD_SECONDS
+        frame_duration = total_duration / total_frames
 
         bio = io.BytesIO()
         imageio.mimsave(
             bio,
             imgs,
             format="GIF",
-            duration=total_duration / len(imgs),
+            duration=frame_duration,
             loop=0,
         )
         bio.seek(0)
-        return bio, spin_duration
+        return bio, SPIN_SECONDS
 
     def _draw_frame(
         self,
@@ -131,11 +145,11 @@ class Wheel(commands.Cog):
             end = start + sector
 
             draw.pieslice(
-                [14, 14, size - 14, size - 14],
+                [12, 12, size - 12, size - 12],
                 start,
                 end,
                 fill=col,
-                outline=(30, 30, 30),
+                outline=(40, 40, 40),
                 width=3,
             )
 
@@ -143,15 +157,15 @@ class Wheel(commands.Cog):
             tx = center + math.cos(ang) * (radius * 0.55)
             ty = center + math.sin(ang) * (radius * 0.55)
 
-            label = opt if len(opt) <= 13 else opt[:12] + "…"
+            label = opt if len(opt) <= 12 else opt[:11] + "…"
 
             brightness = 0.299 * col[0] + 0.587 * col[1] + 0.114 * col[2]
-            fg = (15, 15, 15) if brightness > 150 else (255, 255, 255)
-            stroke = (255, 255, 255) if brightness > 150 else (0, 0, 0)
+            fg = (20, 20, 20) if brightness > 155 else (255, 255, 255)
+            stroke = (255, 255, 255) if brightness > 155 else (10, 10, 10)
 
             bbox = draw.textbbox((0, 0), label, font=self.font)
             tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            pad = 6
+            pad = 5
             text_im = Image.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
             td = ImageDraw.Draw(text_im)
 
@@ -167,16 +181,12 @@ class Wheel(commands.Cog):
             rot = text_im.rotate(-math.degrees(ang) + 90, expand=True, resample=Image.BICUBIC)
             im.paste(rot, (int(tx - rot.width / 2), int(ty - rot.height / 2)), rot)
 
-        # Top arrow
-        arrow = [
-            (center - 20, 2),
-            (center + 20, 2),
-            (center, 32),
-        ]
-        draw.polygon(arrow, fill=(20, 20, 20), outline=(255, 255, 255))
-        draw.polygon(arrow, outline=(255, 255, 255), width=2)
+        # Arrow
+        arrow = [(center - 18, 3), (center + 18, 3), (center, 30)]
+        draw.polygon(arrow, fill=(25, 25, 25), outline=(255, 255, 255))
+        draw.line(arrow + [arrow[0]], fill=(255, 255, 255), width=2)
 
         # Outer ring
-        draw.ellipse([6, 6, size - 6, size - 6], outline=(35, 35, 35), width=5)
+        draw.ellipse([5, 5, size - 5, size - 5], outline=(40, 40, 40), width=5)
 
         return im
