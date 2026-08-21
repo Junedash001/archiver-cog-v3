@@ -31,7 +31,7 @@ class Wheel(commands.Cog):
 
     @commands.command(name="wheel")
     @commands.guild_only()
-    @commands.cooldown(1, 15, commands.BucketType.user)
+    @commands.cooldown(1, 10, commands.BucketType.user)  # ← 10 second cooldown
     async def wheel(self, ctx: commands.Context, *options: str):
         """
         Spin a temporary wheel with the given options.
@@ -75,10 +75,11 @@ class Wheel(commands.Cog):
         options: list[str],
         winner_idx: int,
     ) -> io.BytesIO:
-        SPIN_SECONDS = 3.6
-        HOLD_SECONDS = 5.0
-        SPIN_FRAMES = 36
-        HOLD_FRAMES = 50
+        # Timing & quality settings
+        SPIN_SECONDS = 4.0
+        HOLD_SECONDS = 6.5          # ← longer hold
+        SPIN_FRAMES = 48            # ← more frames (smoother)
+        HOLD_FRAMES = 65            # ← more hold frames
 
         size = 500
         center = size // 2
@@ -88,18 +89,19 @@ class Wheel(commands.Cog):
 
         rotations = 4
         mid_deg = (winner_idx + 0.5) * sector
-        # Target is now the bottom (90°) instead of top (270°)
-        delta = (90 - mid_deg) % 360
+        delta = (90 - mid_deg) % 360          # bottom pointer
         final_offset = rotations * 360 + delta
 
         imgs: list[Image.Image] = []
 
+        # Spinning frames
         for frame in range(SPIN_FRAMES):
             t = frame / (SPIN_FRAMES - 1)
             ease = 1 - (1 - t) ** 2.7
             offset = ease * final_offset
             imgs.append(self._draw_frame(options, colors, offset, size, center, radius, sector))
 
+        # Hold frames
         final_frame = self._draw_frame(options, colors, final_offset, size, center, radius, sector)
         for _ in range(HOLD_FRAMES):
             imgs.append(final_frame.copy())
@@ -173,11 +175,11 @@ class Wheel(commands.Cog):
             rot = text_im.rotate(-math.degrees(ang) + 90, expand=True, resample=Image.BICUBIC)
             im.paste(rot, (int(tx - rot.width / 2), int(ty - rot.height / 2)), rot)
 
-        # Large pointer at the BOTTOM
+        # Large pointer at the bottom
         arrow = [
-            (center - 32, size - 6),   # left base
-            (center + 32, size - 6),   # right base
-            (center, size - 52),       # tip (pointing up)
+            (center - 32, size - 6),
+            (center + 32, size - 6),
+            (center, size - 52),
         ]
         draw.polygon(arrow, fill=(25, 25, 25))
         draw.line(arrow + [arrow[0]], fill=(255, 255, 255), width=3)
