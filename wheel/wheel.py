@@ -2,11 +2,14 @@ import io
 import math
 import random
 import colorsys
+import logging
 import discord
 from PIL import Image, ImageDraw, ImageFont
 import imageio
 from redbot.core import commands
 from redbot.core.bot import Red
+
+log = logging.getLogger("red.wheel")
 
 class Wheel(commands.Cog):
     """Spin a temporary wheel with the given options (nothing is saved)."""
@@ -15,7 +18,7 @@ class Wheel(commands.Cog):
         self.bot = bot
         self.font = self._load_font(26)
 
-    def _load_font(self, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    def _load_font(self, size: int):
         paths = [
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
@@ -31,7 +34,7 @@ class Wheel(commands.Cog):
 
     @commands.command(name="wheel")
     @commands.guild_only()
-    @commands.cooldown(1, 10, commands.BucketType.user)
+    @commands.cooldown(1, 12, commands.BucketType.user)
     async def wheel(self, ctx: commands.Context, *options: str):
         """
         Spin a temporary wheel with the given options.
@@ -42,8 +45,8 @@ class Wheel(commands.Cog):
         """
         if len(options) < 2:
             return await ctx.send("❌ You need at least **2** options to spin a wheel.")
-        if len(options) > 16:
-            return await ctx.send("❌ Maximum **16** options allowed.")
+        if len(options) > 14:
+            return await ctx.send("❌ Maximum **14** options allowed.")
 
         options = [opt.strip() for opt in options if opt.strip()]
         if len(options) < 2:
@@ -55,7 +58,8 @@ class Wheel(commands.Cog):
             try:
                 gif = await self._make_wheel_gif(options, winner_idx)
             except Exception as e:
-                return await ctx.send(f"❌ Failed to generate wheel: `{e}`")
+                log.exception("Wheel generation failed")
+                return await ctx.send(f"❌ Failed to generate the wheel.\n`{type(e).__name__}: {e}`")
 
         file = discord.File(fp=gif, filename="wheel.gif")
         await ctx.send(file=file)
@@ -70,40 +74,35 @@ class Wheel(commands.Cog):
             cols.append((int(r * 255), int(g * 255), int(b * 255)))
         return cols
 
-    async def _make_wheel_gif(
-        self,
-        options: list[str],
-        winner_idx: int,
-    ) -> io.BytesIO:
-        # === Settings ===
-        SPIN_FRAMES = 50
-        HOLD_FRAMES = 140          # ← long hold (~7 seconds)
-        FRAME_DURATION = 0.05      # 50ms per frame
+    async def _make_wheel_gif(self, options: list[str], winner_idx: int) -> io.BytesIO:
+        # Lighter settings to prevent crashes
+        SPIN_FRAMES = 40
+        HOLD_FRAMES = 80          # still a solid ~6–7 second hold
+        FRAME_DURATION = 0.08     # slightly longer per frame
 
-        size = 500
+        size = 480                # slightly smaller = less memory
         center = size // 2
-        radius = center - 14
+        radius = center - 12
         sector = 360.0 / len(options)
         colors = self._get_colors(len(options))
 
         rotations = 4
         mid_deg = (winner_idx + 0.5) * sector
-        delta = (90 - mid_deg) % 360          # bottom pointer
+        delta = (90 - mid_deg) % 360
         final_offset = rotations * 360 + delta
 
-        imgs: list[Image.Image] = []
+        imgs = []
 
-        # Spinning frames
+        # Spin
         for frame in range(SPIN_FRAMES):
-            t = frame / (SPIN_FRAMES - 1)
-            ease = 1 - (1 - t) ** 2.7
+            t = frame / max(SPIN_FRAMES - 1, 1)
+            ease = 1 - (1 - t) ** 2.6
             offset = ease * final_offset
             imgs.append(self._draw_frame(options, colors, offset, size, center, radius, sector))
 
-        # Long hold – many identical frames
+        # Hold (reuse the same image object as much as possible)
         final_frame = self._draw_frame(options, colors, final_offset, size, center, radius, sector)
-        for _ in range(HOLD_FRAMES):
-            imgs.append(final_frame.copy())
+        imgs.extend([final_frame] * HOLD_FRAMES)
 
         bio = io.BytesIO()
         imageio.mimsave(
@@ -111,7 +110,7 @@ class Wheel(commands.Cog):
             imgs,
             format="GIF",
             duration=FRAME_DURATION,
-            loop=0,                 # infinite loop is fine now because hold is long
+            loop=0,
         )
         bio.seek(0)
         return bio
@@ -119,7 +118,7 @@ class Wheel(commands.Cog):
     def _draw_frame(
         self,
         options: list[str],
-        colors: list[tuple[int, int, int]],
+        colors: list,
         offset: float,
         size: int,
         center: int,
@@ -134,12 +133,12 @@ class Wheel(commands.Cog):
             end = start + sector
 
             draw.pieslice(
-                [12, 12, size - 12, size - 12],
+                [10, 10, size - 10, size - 10],
                 start,
                 end,
                 fill=col,
                 outline=(40, 40, 40),
-                width=3,
+                width=2,
             )
 
             ang = math.radians((start + end) / 2)
@@ -154,32 +153,23 @@ class Wheel(commands.Cog):
 
             bbox = draw.textbbox((0, 0), label, font=self.font)
             tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            pad = 5
+            pad = 4
             text_im = Image.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
             td = ImageDraw.Draw(text_im)
-
-            td.text(
-                (pad, pad),
-                label,
-                font=self.font,
-                fill=fg,
-                stroke_width=3,
-                stroke_fill=stroke,
-            )
+            td.text((pad, pad), label, font=self.font, fill=fg, stroke_width=3, stroke_fill=stroke)
 
             rot = text_im.rotate(-math.degrees(ang) + 90, expand=True, resample=Image.BICUBIC)
             im.paste(rot, (int(tx - rot.width / 2), int(ty - rot.height / 2)), rot)
 
-        # Large pointer at the bottom
+        # Bottom pointer
         arrow = [
-            (center - 32, size - 6),
-            (center + 32, size - 6),
-            (center, size - 52),
+            (center - 28, size - 5),
+            (center + 28, size - 5),
+            (center, size - 46),
         ]
         draw.polygon(arrow, fill=(25, 25, 25))
         draw.line(arrow + [arrow[0]], fill=(255, 255, 255), width=3)
 
-        # Outer ring
-        draw.ellipse([5, 5, size - 5, size - 5], outline=(40, 40, 40), width=5)
+        draw.ellipse([4, 4, size - 4, size - 4], outline=(40, 40, 40), width=4)
 
         return im
