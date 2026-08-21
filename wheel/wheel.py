@@ -75,11 +75,9 @@ class Wheel(commands.Cog):
         options: list[str],
         winner_idx: int,
     ) -> io.BytesIO:
-        # === Timing settings ===
-        SPIN_SECONDS = 4.0
-        HOLD_SECONDS = 7.0          # ← clearly longer hold
-        SPIN_FRAMES = 48
-        HOLD_FRAMES = 90            # ← many more hold frames
+        SPIN_SECONDS = 4.2
+        HOLD_SECONDS = 7.0          # ← actual hold time
+        SPIN_FRAMES = 52            # smoother spin
 
         size = 500
         center = size // 2
@@ -93,30 +91,30 @@ class Wheel(commands.Cog):
         final_offset = rotations * 360 + delta
 
         imgs: list[Image.Image] = []
+        durations: list[float] = []
 
-        # Spinning part
+        # === Spinning frames ===
+        spin_frame_duration = SPIN_SECONDS / SPIN_FRAMES
+
         for frame in range(SPIN_FRAMES):
             t = frame / (SPIN_FRAMES - 1)
             ease = 1 - (1 - t) ** 2.7
             offset = ease * final_offset
             imgs.append(self._draw_frame(options, colors, offset, size, center, radius, sector))
+            durations.append(spin_frame_duration)
 
-        # Long hold
+        # === Final hold frame (single frame with long duration) ===
         final_frame = self._draw_frame(options, colors, final_offset, size, center, radius, sector)
-        for _ in range(HOLD_FRAMES):
-            imgs.append(final_frame.copy())
-
-        total_frames = len(imgs)
-        total_duration = SPIN_SECONDS + HOLD_SECONDS
-        frame_duration = total_duration / total_frames
+        imgs.append(final_frame)
+        durations.append(HOLD_SECONDS)          # ← this is the real hold
 
         bio = io.BytesIO()
         imageio.mimsave(
             bio,
             imgs,
             format="GIF",
-            duration=frame_duration,
-            loop=1,               # ← Play only once (important!)
+            duration=durations,     # per-frame durations
+            loop=1,                 # play once
         )
         bio.seek(0)
         return bio
