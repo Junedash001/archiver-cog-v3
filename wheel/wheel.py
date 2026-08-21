@@ -75,9 +75,10 @@ class Wheel(commands.Cog):
         options: list[str],
         winner_idx: int,
     ) -> io.BytesIO:
-        SPIN_SECONDS = 4.2
-        HOLD_SECONDS = 7.0          # ← actual hold time
-        SPIN_FRAMES = 52            # smoother spin
+        # === Settings ===
+        SPIN_FRAMES = 50
+        HOLD_FRAMES = 140          # ← long hold (~7 seconds)
+        FRAME_DURATION = 0.05      # 50ms per frame
 
         size = 500
         center = size // 2
@@ -91,30 +92,26 @@ class Wheel(commands.Cog):
         final_offset = rotations * 360 + delta
 
         imgs: list[Image.Image] = []
-        durations: list[float] = []
 
-        # === Spinning frames ===
-        spin_frame_duration = SPIN_SECONDS / SPIN_FRAMES
-
+        # Spinning frames
         for frame in range(SPIN_FRAMES):
             t = frame / (SPIN_FRAMES - 1)
             ease = 1 - (1 - t) ** 2.7
             offset = ease * final_offset
             imgs.append(self._draw_frame(options, colors, offset, size, center, radius, sector))
-            durations.append(spin_frame_duration)
 
-        # === Final hold frame (single frame with long duration) ===
+        # Long hold – many identical frames
         final_frame = self._draw_frame(options, colors, final_offset, size, center, radius, sector)
-        imgs.append(final_frame)
-        durations.append(HOLD_SECONDS)          # ← this is the real hold
+        for _ in range(HOLD_FRAMES):
+            imgs.append(final_frame.copy())
 
         bio = io.BytesIO()
         imageio.mimsave(
             bio,
             imgs,
             format="GIF",
-            duration=durations,     # per-frame durations
-            loop=1,                 # play once
+            duration=FRAME_DURATION,
+            loop=0,                 # infinite loop is fine now because hold is long
         )
         bio.seek(0)
         return bio
