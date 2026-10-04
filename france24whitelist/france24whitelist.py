@@ -91,10 +91,10 @@ class France24Whitelist(commands.Cog):
 
     async def _handle(self, message: discord.Message) -> None:
         guild = message.guild
-        if guild is None or self.bot.user is None:
+        if guild is None:
             return
-        if message.author.id == self.bot.user.id:
-            return
+        # Note: the bot's own messages are checked on purpose. Other cogs (e.g. the RSS
+        # cog) post as the bot itself. The log channel is skipped below instead.
 
         # Cheap pre-check: ignore everything that has no France 24 link at all.
         urls = collect_urls(message)
@@ -106,6 +106,8 @@ class France24Whitelist(commands.Cog):
         settings = await self.config.guild(guild).all()
         if not settings["enabled"]:
             return
+        if message.channel.id == settings["log_channel"]:
+            return  # never act on our own log entries
         if not self._in_scope(message, settings["channels"]):
             return
         if settings["exempt_mods"] and await self._is_exempt(message.author):
