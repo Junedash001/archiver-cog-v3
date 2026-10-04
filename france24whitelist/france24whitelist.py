@@ -45,8 +45,9 @@ def collect_urls(message: discord.Message) -> List[str]:
 class France24Whitelist(commands.Cog):
     """Delete France 24 links that are not regular news articles.
 
-    Only messages that contain a France 24 link are ever looked at. Links to any
-    other website, and ordinary messages, are never touched.
+    Only the bot's own messages (for example posts made by the RSS cog) are checked,
+    and only when they contain a France 24 link. Messages from other users, bots and
+    webhooks are never touched.
     """
 
     __version__ = "1.0.0"
@@ -62,7 +63,6 @@ class France24Whitelist(commands.Cog):
             channels=[],  # empty = every channel
             pattern=DEFAULT_PATTERN,
             dryrun=False,
-            exempt_mods=True,
             log_channel=None,
         )
         self._recent = deque(maxlen=500)  # message IDs already handled
@@ -91,10 +91,11 @@ class France24Whitelist(commands.Cog):
 
     async def _handle(self, message: discord.Message) -> None:
         guild = message.guild
-        if guild is None:
+        if guild is None or self.bot.user is None:
             return
-        # Note: the bot's own messages are checked on purpose. Other cogs (e.g. the RSS
-        # cog) post as the bot itself. The log channel is skipped below instead.
+        # Only the bot's own messages are checked (other cogs, e.g. RSS, post as the bot).
+        if message.author.id != self.bot.user.id:
+            return
 
         # Cheap pre-check: ignore everything that has no France 24 link at all.
         urls = collect_urls(message)
@@ -109,8 +110,6 @@ class France24Whitelist(commands.Cog):
         if message.channel.id == settings["log_channel"]:
             return  # never act on our own log entries
         if not self._in_scope(message, settings["channels"]):
-            return
-        if settings["exempt_mods"] and await self._is_exempt(message.author):
             return
 
         try:
@@ -132,12 +131,6 @@ class France24Whitelist(commands.Cog):
         if parent_id:
             ids.add(parent_id)
         return bool(ids.intersection(watched))
-
-    async def _is_exempt(self, author: Union[discord.Member, discord.User]) -> bool:
-        """Human moderators/admins/owners may post anything. Bots and webhooks never are."""
-        if not isinstance(author, discord.Member) or author.bot:
-            return False
-        return await self.bot.is_owner(author) or await self.bot.is_mod(author)
 
     async def _block(
         self, message: discord.Message, blocked: List[str], settings: dict
@@ -223,15 +216,6 @@ class France24Whitelist(commands.Cog):
         """Log what would be deleted without deleting anything (true/false)."""
         await self.config.guild(ctx.guild).dryrun.set(on_off)
         await ctx.send(f"Dry run is now {'on' if on_off else 'off'}.")
-
-    @f24wl.command(name="exemptmods")
-    async def f24wl_exemptmods(self, ctx: commands.Context, on_off: bool) -> None:
-        """Let human mods/admins post any France 24 link (default: true).
-
-        Bots and webhooks are never exempt.
-        """
-        await self.config.guild(ctx.guild).exempt_mods.set(on_off)
-        await ctx.send(f"Moderator exemption is now {'on' if on_off else 'off'}.")
 
     @f24wl.command(name="logchannel")
     async def f24wl_logchannel(
@@ -350,7 +334,6 @@ class France24Whitelist(commands.Cog):
         lines = [
             f"Enabled: {s['enabled']}",
             f"Dry run: {s['dryrun']}",
-            f"Exempt moderators: {s['exempt_mods']}",
             f"Checked channels: {channels}",
             f"Log channel: {log_channel}",
             f"Pattern: {inline(s['pattern'])}",
