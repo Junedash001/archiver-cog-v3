@@ -1,0 +1,10 @@
+{
+  "author": ["YourGitHubName"],
+  "description": "Deletes the bot's own RSS posts whose links contain a blocked word",
+  "end_user_data_statement": "This cog does not persistently store data about users.",
+  "install_msg": "Edit BLOCKED in rssguard.py to set your words.",
+  "min_bot_version": "3.5.0",
+  "short": "Delete RSS posts by URL word",
+  "tags": ["rss", "filter"],
+  "type": "COG"
+}
