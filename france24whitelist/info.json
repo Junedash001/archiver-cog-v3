@@ -1,0 +1,15 @@
+{
+  "author": ["YOUR_GITHUB_USERNAME"],
+  "name": "France24Whitelist",
+  "short": "Delete France 24 links that are not regular news articles.",
+  "description": "Watches messages (including bot/webhook/RSS posts and their embeds) for France 24 links and deletes the message if the link is not a regular article, e.g. TV show episodes, video clips and newscast items. Links to other websites and messages without France 24 links are never touched. Includes a dry-run mode, per-channel scope, a log channel and a configurable regex.",
+  "end_user_data_statement": "This cog does not persistently store data about users. It only stores per-server settings (channel IDs, a regex and a few toggles).",
+  "install_msg": "Thanks for installing France24Whitelist! Load it with `[p]load france24whitelist`, then see `[p]help france24whitelist`. Start with `[p]f24wl dryrun true` and `[p]f24wl enable`.",
+  "min_bot_version": "3.5.0",
+  "min_python_version": [3, 8, 1],
+  "requirements": [],
+  "tags": ["moderation", "rss", "news", "links", "whitelist"],
+  "hidden": false,
+  "disabled": false,
+  "type": "COG"
+}
