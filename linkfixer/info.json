@@ -1,0 +1,15 @@
+{
+  "author": ["YOUR_GITHUB_USERNAME"],
+  "name": "LinkFixer",
+  "short": "Replaces social media links with embed-friendly ones. Twitter/X: video-only and auto-translation.",
+  "description": "Replies to messages containing links from Twitter/X, Instagram, Reddit, Pixiv, Threads, TikTok and Bilibili with versions that embed properly in Discord. Twitter/X links can be limited to tweets that contain a video or GIF, tweets written in another language are fixed with vxtwitter and /en so Discord shows an English translation, and the original message can optionally be deleted after the fixed link is posted.",
+  "end_user_data_statement": "This cog does not persistently store data about users. It only stores per-server settings. When a message contains a Twitter/X link, the account name and tweet ID from that link are sent to api.vxtwitter.com to check whether the tweet has a video and what language it is in.",
+  "install_msg": "Thanks for installing LinkFixer! Load it with `[p]load linkfixer`, turn it on with `[p]linkfixer enable`, and see `[p]help linkfixer` for the Twitter/X video-only, translation and delete-original options.",
+  "min_bot_version": "3.5.0",
+  "min_python_version": [3, 10, 0],
+  "requirements": ["regex"],
+  "tags": ["links", "embeds", "twitter", "vxtwitter", "social", "translate"],
+  "hidden": false,
+  "disabled": false,
+  "type": "COG"
+}
