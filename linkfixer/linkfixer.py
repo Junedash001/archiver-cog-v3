@@ -73,11 +73,13 @@ ALL_LINKS = [
 DEFAULT_DISABLED_LINKS = ["vxtwitter", "kkinstagram", "vxinstagram", "redditez", "tiktokez", "ppxiv"]
 
 
-# --- Video-only mode and automatic translation of non-English tweets -----------
-# Both features ask vxtwitter's API about a tweet before its link is fixed:
+# --- Video-only mode, quote tweets and translation of non-English tweets --------
+# These features ask vxtwitter's API about a tweet before its link is fixed:
 #  * video-only: a tweet link is only fixed if the tweet has a video or GIF
+#  * quote tweets: a quote tweet is always fixed (video or not) using the QUOTE_WITH fixer
 #  * translate-foreign: a tweet whose language is not English is always fixed (video or not)
 #    using the TRANSLATE_WITH fixer with /en appended, so Discord shows the English translation
+# Priority: translation, then quote tweets, then the video-only rule.
 VXTWITTER_API = "https://api.vxtwitter.com/{user}/status/{id}"
 STATUS_RE = regex.compile(r"(?P<user>[^/\s]+)/status/(?P<id>\d+)")
 VIDEO_MEDIA_TYPES = {"video", "gif", "animated_gif"}  # vxtwitter reports GIFs as "video"
@@ -85,6 +87,7 @@ VIDEO_MEDIA_TYPES = {"video", "gif", "animated_gif"}  # vxtwitter reports GIFs a
 NOT_A_LANGUAGE = {"", "und", "qme", "qam", "qht", "qct", "qst", "zxx"}
 TRANSLATE_WITH = "vxtwitter"  # name of the fixer in ALL_LINKS that builds translated links
 TRANSLATE_TO = "en"
+QUOTE_WITH = "vxtwitter"  # name of the fixer in ALL_LINKS used for quote tweets
 MAX_TWEET_LOOKUPS = 5  # per message; further tweet links are treated as having no video
 LOOKUP_TIMEOUT = 8  # seconds
 CACHE_TTL = 600  # seconds
@@ -92,12 +95,14 @@ CACHE_MAX = 500
 REPLACE_ON_LOOKUP_FAILURE = False  # if the API errors out, leave the link alone
 
 TRANSLATION_LINK = next(link for link in ALL_LINKS if link.name == TRANSLATE_WITH)
+QUOTE_LINK = next(link for link in ALL_LINKS if link.name == QUOTE_WITH)
 
 
 @dataclass(frozen=True)
 class TweetInfo:
     has_video: bool
     lang: Optional[str] = None
+    is_quote: bool = False
 
 
 def tweet_has_video(data: dict) -> bool:
@@ -108,7 +113,11 @@ def tweet_has_video(data: dict) -> bool:
 
 def tweet_info(data: dict) -> TweetInfo:
     lang = data.get("lang")
-    return TweetInfo(tweet_has_video(data), lang if isinstance(lang, str) else None)
+    return TweetInfo(
+        tweet_has_video(data),
+        lang if isinstance(lang, str) else None,
+        bool(data.get("qrtURL")),  # vxtwitter sets qrtURL on quote tweets, and null otherwise
+    )
 
 
 def is_foreign_language(lang: Optional[str]) -> bool:
@@ -158,6 +167,14 @@ def twitter_translate_filter(tweets: Tweets) -> Callable[[str], bool]:
     return translate
 
 
+def twitter_quote_filter(tweets: Tweets) -> Callable[[str], bool]:
+    """Builds the `quote` callback for fix_links: True for quote tweets."""
+    def quote(url: str) -> bool:
+        info = tweets.get(url)
+        return info is not None and info.is_quote
+    return quote
+
+
 def is_in_span(spans: List[Span], pos: int) -> bool:
     return any(start <= pos < end for start, end in spans)
 
@@ -200,11 +217,14 @@ def fix_links(
     language: str,
     allow: Optional[Callable[[Link, str], bool]] = None,
     translate: Optional[Callable[[str], bool]] = None,
+    quote: Optional[Callable[[str], bool]] = None,
 ) -> str | None:
     """`allow(fixer, url)` may veto a fix: a vetoed link is left exactly as it was sent.
 
     `translate(url)` may force a link to be fixed with TRANSLATION_LINK and /en appended.
-    It takes priority over `allow`, and only applies to links that some enabled fixer matches.
+    `quote(url)` may force a link to be fixed with QUOTE_LINK.
+    Both take priority over `allow` (translate first), and only apply to links that some
+    enabled fixer matches.
     """
     urls = extract_urls(content)
     if not urls:
@@ -217,6 +237,12 @@ def fix_links(
             if fixer.pattern.match(url):
                 if translate is not None and translate(url):
                     url = f"{TRANSLATION_LINK.fix(url)}/{TRANSLATE_TO}"
+                    any_fixed = True
+                    break
+                if quote is not None and quote(url):
+                    url = QUOTE_LINK.fix(url)
+                    if language and QUOTE_LINK.translatable:
+                        url = f"{url}/{language}"
                     any_fixed = True
                     break
                 if allow is not None and not allow(fixer, url):
@@ -250,6 +276,7 @@ class LinkFixer(commands.Cog):
             "language": None,
             "twitter_video_only": True,
             "translate_foreign": True,
+            "fix_quote_tweets": True,
             "delete_original": False,
         })
         self.enabled_guilds: List[int] = []
@@ -318,14 +345,16 @@ class LinkFixer(commands.Cog):
 
         link_types = [link for link in ALL_LINKS if link.name not in self.disabled_links.get(message.guild.id, [])]
         settings = await self.config.guild(message.guild).all()
-        allow = translate = None
-        if settings["twitter_video_only"] or settings["translate_foreign"]:
+        allow = translate = quote = None
+        if settings["twitter_video_only"] or settings["translate_foreign"] or settings["fix_quote_tweets"]:
             tweets = await self.lookup_tweets(message.content)
             if settings["twitter_video_only"]:
                 allow = twitter_video_filter(tweets)
             if settings["translate_foreign"]:
                 translate = twitter_translate_filter(tweets)
-        fixed = fix_links(message.content, link_types, settings["language"], allow, translate)
+            if settings["fix_quote_tweets"]:
+                quote = twitter_quote_filter(tweets)
+        fixed = fix_links(message.content, link_types, settings["language"], allow, translate, quote)
         if not fixed:
             return
 
@@ -426,6 +455,23 @@ class LinkFixer(commands.Cog):
             await ctx.reply("✅ Non-English tweets will be fixed and translated to English.")
         else:
             await ctx.reply("⛔ Non-English tweets are no longer translated automatically.")
+
+    @command_linkfixer.command(name="quotetweets", aliases=["quote"])
+    async def command_linkfixer_quotetweets(self, ctx: commands.Context, enabled: Optional[bool] = None):
+        """Always fix quote tweets with vxtwitter, with or without video.
+
+        This matters when video-only mode is on: a tweet quoting a video tweet has no video of
+        its own and would otherwise be skipped. Run without an argument to see the setting.
+        """
+        assert ctx.guild
+        if enabled is None:
+            current = await self.config.guild(ctx.guild).fix_quote_tweets()
+            return await ctx.reply(f"Fixing quote tweets is **{'on' if current else 'off'}**.")
+        await self.config.guild(ctx.guild).fix_quote_tweets.set(enabled)
+        if enabled:
+            await ctx.reply("✅ Quote tweets will always be fixed with vxtwitter.")
+        else:
+            await ctx.reply("⛔ Quote tweets follow the normal rules again (video-only applies).")
 
     @command_linkfixer.command(name="deleteoriginal", aliases=["delete"])
     async def command_linkfixer_deleteoriginal(self, ctx: commands.Context, enabled: Optional[bool] = None):
