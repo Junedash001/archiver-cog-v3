@@ -14,6 +14,7 @@ from .linkfixer import (
     tweet_api_url,
     tweet_has_video,
     tweet_info,
+    twitter_quote_filter,
     twitter_translate_filter,
     twitter_video_filter,
 )
@@ -41,10 +42,10 @@ def case(src, want, only: str | tuple[str, ...] | None = None, lang: str | None 
     return Case(src, want, new_only, lang, loose)
 
 
-def run_fix_links(src, only=None, lang="", allow=None, translate=None):
+def run_fix_links(src, only=None, lang="", allow=None, translate=None, quote=None):
     names = DEFAULT_NAMES if only is None else only
     link_types = [l for l in ALL_LINKS if l.name in names]
-    result = fix_links(src, link_types, lang, allow, translate)
+    result = fix_links(src, link_types, lang, allow, translate, quote)
     return result
 
 
@@ -256,15 +257,16 @@ PHOTO = "https://x.com/b/status/2"
 TEXT = "https://x.com/c/status/3"
 
 
-def tw(video: bool, lang: str | None = "en") -> TweetInfo:
-    return TweetInfo(video, lang)
+def tw(video: bool, lang: str | None = "en", quote: bool = False) -> TweetInfo:
+    return TweetInfo(video, lang, quote)
 
 
-def with_filters(src, tweets, only=None, lang="", video_only=True, translate_foreign=True):
-    """Runs fix_links the way the cog does, with the two features switched on or off."""
+def with_filters(src, tweets, only=None, lang="", video_only=True, translate_foreign=True, quote_tweets=True):
+    """Runs fix_links the way the cog does, with the three features switched on or off."""
     allow = twitter_video_filter(tweets) if video_only else None
     translate = twitter_translate_filter(tweets) if translate_foreign else None
-    return run_fix_links(src, only, lang, allow, translate)
+    quote = twitter_quote_filter(tweets) if quote_tweets else None
+    return run_fix_links(src, only, lang, allow, translate, quote)
 
 
 # (message, {tweet url: TweetInfo or None}, expected result, only)
@@ -319,6 +321,28 @@ TWITTER_FILTER_TESTS = [
     ("https://x.com/a/status/1 https://x.com/b/status/2 https://x.com/c/status/3",
      {VIDEO: tw(True, "en"), PHOTO: tw(False, "de"), TEXT: tw(False, "en")},
      "https://fxtwitter.com/a/status/1\nhttps://vxtwitter.com/b/status/2/en\nhttps://x.com/c/status/3", None),
+    # --- quote tweets are always fixed with vxtwitter, video or not ---
+    ("https://x.com/b/status/2", {PHOTO: tw(False, "en", True)}, "https://vxtwitter.com/b/status/2", None),
+    ("https://x.com/c/status/3", {TEXT: tw(False, "en", True)}, "https://vxtwitter.com/c/status/3", None),
+    ("https://x.com/a/status/1", {VIDEO: tw(True, "en", True)}, "https://vxtwitter.com/a/status/1", None),
+    ("https://x.com/b/status/2?s=20", {"https://x.com/b/status/2?s=20": tw(False, "en", True)}, "https://vxtwitter.com/b/status/2", None),
+    ("||https://x.com/b/status/2||", {PHOTO: tw(False, "en", True)}, "|| https://vxtwitter.com/b/status/2 ||", None),
+    ("https://x.com/b/status/2", {PHOTO: tw(False, None, True)}, "https://vxtwitter.com/b/status/2", None),
+    ("https://x.com/b/status/2", {PHOTO: tw(False, "und", True)}, "https://vxtwitter.com/b/status/2", None),
+    # whichever twitter fixer the server has enabled
+    ("https://x.com/b/status/2", {PHOTO: tw(False, "en", True)}, "https://vxtwitter.com/b/status/2", ("fxtwitter",)),
+    ("https://x.com/b/status/2", {PHOTO: tw(False, "en", True)}, "https://vxtwitter.com/b/status/2", ("fixembed",)),
+    # ...but not when the server has no fixer for the link at all
+    ("https://x.com/b/status/2", {PHOTO: tw(False, "en", True)}, None, ("oginstagram",)),
+    # a quote tweet in another language: the translation wins
+    ("https://x.com/b/status/2", {PHOTO: tw(False, "ja", True)}, "https://vxtwitter.com/b/status/2/en", None),
+    ("https://x.com/a/status/1", {VIDEO: tw(True, "ja", True)}, "https://vxtwitter.com/a/status/1/en", None),
+    # a plain (not quote) tweet is unaffected
+    ("https://x.com/b/status/2", {PHOTO: tw(False, "en", False)}, None, None),
+    # mixed: quote photo, plain photo, plain video
+    ("https://x.com/b/status/2 https://x.com/c/status/3 https://x.com/a/status/1",
+     {PHOTO: tw(False, "en", True), TEXT: tw(False, "en"), VIDEO: tw(True, "en")},
+     "https://vxtwitter.com/b/status/2\nhttps://x.com/c/status/3\nhttps://fxtwitter.com/a/status/1", None),
 ]
 
 
@@ -329,6 +353,7 @@ API_GIF = {"media_extended": [{"type": "gif", "url": "https://video.twimg.com/tw
 API_PHOTO = {"media_extended": [{"type": "image", "url": "https://pbs.twimg.com/media/a.jpg"}]}
 API_PHOTO_JA = {"media_extended": [{"type": "image", "url": "https://pbs.twimg.com/media/a.jpg"}], "lang": "ja"}
 API_VIDEO_JA = {"media_extended": [{"type": "video", "url": "y"}], "lang": "ja"}
+API_QUOTE_PHOTO = {"media_extended": [{"type": "image", "url": "x"}], "lang": "en", "qrtURL": "https://twitter.com/i/status/9"}
 API_MIXED = {"media_extended": [{"type": "image", "url": "x"}, {"type": "video", "url": "y"}]}
 API_TEXT_ONLY = {"media_extended": [], "text": "hello"}
 API_NO_FIELD = {"text": "hello"}
@@ -422,7 +447,8 @@ class FakeMessage:
 
 
 def listener_settings(**overrides):
-    base = {"language": None, "twitter_video_only": True, "translate_foreign": True, "delete_original": False}
+    base = {"language": None, "twitter_video_only": True, "translate_foreign": True,
+            "fix_quote_tweets": True, "delete_original": False}
     base.update(overrides)
     return base
 
@@ -478,9 +504,24 @@ def run_twitter_suite():
         (PHOTO, {PHOTO: tw(False, "ja")}, True, True, "en", "https://vxtwitter.com/b/status/2/en"),
     ]
     for src, tweets, vo, tf, lang, want in flag_cases:
-        got = with_filters(src, tweets, None, lang, vo, tf)
+        got = with_filters(src, tweets, None, lang, vo, tf, quote_tweets=False)
         failed = expect(failed, f"flags video_only={vo} translate={tf} lang={lang!r}: {src}", got == want,
                         f"want {want!r}, got {got!r}")
+
+    # quote tweets: the setting on and off, and next to the server-wide language option
+    quote_cases = [
+        # (message, tweets, video_only, translate_foreign, quote_tweets, lang, want)
+        (PHOTO, {PHOTO: tw(False, "en", True)}, True, True, False, "", None),
+        (PHOTO, {PHOTO: tw(False, "en", True)}, True, True, True, "", "https://vxtwitter.com/b/status/2"),
+        (PHOTO, {PHOTO: tw(False, "en", True)}, False, False, False, "", "https://fxtwitter.com/b/status/2"),
+        (VIDEO, {VIDEO: tw(True, "en", True)}, True, True, False, "", "https://fxtwitter.com/a/status/1"),
+        (PHOTO, {PHOTO: tw(False, "en", True)}, True, True, True, "en", "https://vxtwitter.com/b/status/2/en"),
+        (PHOTO, {PHOTO: tw(False, "ja", True)}, True, False, True, "", "https://vxtwitter.com/b/status/2"),
+    ]
+    for src, tweets, vo, tf, qt, lang, want in quote_cases:
+        got = with_filters(src, tweets, None, lang, vo, tf, qt)
+        failed = expect(failed, f"quote flags video_only={vo} translate={tf} quote={qt} lang={lang!r}: {src}",
+                        got == want, f"want {want!r}, got {got!r}")
 
     # no filter at all: behaves exactly like the original cog
     failed = expect(failed, "no filters should fix every tweet",
@@ -509,6 +550,12 @@ def run_twitter_suite():
         ({"media_extended": [], "lang": None}, TweetInfo(False, None)),
         ({"media_extended": [], "lang": 5}, TweetInfo(False, None)),
         ({"media_extended": [], "lang": "und"}, TweetInfo(False, "und")),
+        # quote tweets: vxtwitter sets qrtURL, and null on everything else
+        ({"media_extended": [], "qrtURL": "https://twitter.com/i/status/9"}, TweetInfo(False, None, True)),
+        ({"media_extended": [], "qrtURL": None}, TweetInfo(False, None, False)),
+        ({"media_extended": [], "qrtURL": ""}, TweetInfo(False, None, False)),
+        ({"media_extended": []}, TweetInfo(False, None, False)),
+        (API_QUOTE_PHOTO, TweetInfo(False, "en", True)),
     ]
     for data, want in info_cases:
         failed = expect(failed, f"tweet_info({data!r})", tweet_info(data) == want, f"got {tweet_info(data)!r}")
@@ -615,8 +662,18 @@ def run_twitter_suite():
     failed = expect(failed, "translate_foreign off: Japanese photo tweet is left alone (video-only)",
                     not c.sent and not m.deleted)
 
-    m, c, cog = run_listener(PHOTO, api_b_en, twitter_video_only=False, translate_foreign=False)
-    failed = expect(failed, "both features off: every tweet fixed, and no API calls",
+    api_b_quote = {"https://api.vxtwitter.com/b/status/2": (200, API_QUOTE_PHOTO)}
+    m, c, _ = run_listener(PHOTO, api_b_quote, delete_original=True)
+    failed = expect(failed, "quote tweet without video: vxtwitter link posted and original deleted",
+                    len(c.sent) == 1 and "https://vxtwitter.com/b/status/2" in c.sent[0] and m.deleted,
+                    f"sent={c.sent} deleted={m.deleted}")
+
+    m, c, _ = run_listener(PHOTO, api_b_quote, fix_quote_tweets=False)
+    failed = expect(failed, "quote tweet with quote fixing off: left alone (video-only)",
+                    not c.sent and not m.deleted and not m.suppressed)
+
+    m, c, cog = run_listener(PHOTO, api_b_en, twitter_video_only=False, translate_foreign=False, fix_quote_tweets=False)
+    failed = expect(failed, "all three features off: every tweet fixed, and no API calls",
                     len(c.sent) == 1 and "https://fxtwitter.com/b/status/2" in c.sent[0] and not cog.session.calls,
                     f"sent={c.sent} calls={cog.session.calls}")
 
